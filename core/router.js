@@ -8,9 +8,10 @@
 import ledger     from '../modules/ledger.js';
 import documents  from '../modules/documents.js';
 import sweep      from '../modules/sweep.js';
+import vault      from '../modules/vault.js';
 
 // ↓↓↓ THE REGISTRY — edit this to add/remove icons ↓↓↓
-const MODULES = [ledger, documents, sweep];
+const MODULES = [ledger, documents, sweep, vault];
 // ↑↑↑ that's it — the launcher reads from here ↑↑↑
 
 let activeModule = null;
