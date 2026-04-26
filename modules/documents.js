@@ -68,11 +68,11 @@ function renderGrid() {
       <label class="btn dh-actions__btn">
         📷&nbsp; CAMERA
         <input type="file" accept="image/*" capture="environment"
-               id="dh-camera" hidden>
+               id="dh-camera" multiple hidden>
       </label>
       <label class="btn dh-actions__btn">
         📁&nbsp; PICK
-        <input type="file" id="dh-pick" hidden>
+        <input type="file" id="dh-pick" multiple hidden>
       </label>
     </div>
 
@@ -138,29 +138,101 @@ function buildGridCell(file) {
    ============================================================ */
 async function onFileChosen(e) {
   const input = e.currentTarget;
-  const file = input.files && input.files[0];
+  const files = Array.from(input.files || []);
   input.value = '';                      // allow re-picking same file
-  if (!file) return;
+  if (files.length === 0) return;
 
-  const ext = (file.name.split('.').pop() || '').toLowerCase();
-  const record = {
-    id: uuid(),
-    name: file.name || `capture-${Date.now()}.${ext || 'bin'}`,
-    mime: file.type || guessMimeFromExt(ext),
-    ext,
-    size: file.size,
-    blob: file,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    // placeholders for upcoming steps
-    extracted: null,    // 2b: AI extraction result
-    onedriveId: null,   // 2c: OneDrive item id
-    syncedAt: null,
-  };
+  // Save each file. Tiny offset on createdAt keeps newest-first stable
+  // when multiple files come in at the same millisecond.
+  const baseTime = Date.now();
+  for (let i = 0; i < files.length; i++) {
+    const original = files[i];
+    const ext = (original.name.split('.').pop() || '').toLowerCase();
 
-  await db.put(STORE, record);
+    // Compress images silently — keeps receipts readable, saves 80–90%
+    let blob = original;
+    let storedExt = ext;
+    let storedMime = original.type || guessMimeFromExt(ext);
+    if ((original.type || '').startsWith('image/')) {
+      const compressed = await compressImage(original);
+      if (compressed && compressed.size < original.size) {
+        blob = compressed;
+        storedExt = 'jpg';
+        storedMime = 'image/jpeg';
+      }
+    }
+
+    const record = {
+      id: uuid(),
+      name: original.name || `capture-${baseTime + i}.${storedExt || 'bin'}`,
+      mime: storedMime,
+      ext: storedExt,
+      size: blob.size,
+      originalSize: original.size,
+      blob,
+      createdAt: baseTime + i,
+      updatedAt: baseTime + i,
+      // placeholders for upcoming steps
+      extracted: null,    // 2b: AI extraction result
+      onedriveId: null,   // 2c: OneDrive item id
+      syncedAt: null,
+    };
+    await db.put(STORE, record);
+  }
+
   await refreshCache();
   routeView();
+}
+
+/* ---------- Image compression ----------
+   Resizes to max 1600px on the long side, re-encodes JPEG @ 0.85.
+   Keeps receipt text readable, slashes file size 80–90%.
+   Falls back to original if anything goes wrong.
+*/
+function compressImage(file, maxDim = 1600, quality = 0.85) {
+  return new Promise(resolve => {
+    if (!file.type.startsWith('image/')) return resolve(file);
+    if (file.size < 300 * 1024) return resolve(file);   // already small
+
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      try {
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          if (width >= height) {
+            height = Math.round(height * (maxDim / width));
+            width  = maxDim;
+          } else {
+            width  = Math.round(width  * (maxDim / height));
+            height = maxDim;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#fff';   // for transparent PNGs converted to JPEG
+        ctx.fillRect(0, 0, width, height);
+        ctx.drawImage(img, 0, 0, width, height);
+        canvas.toBlob(blob => {
+          URL.revokeObjectURL(url);
+          if (!blob) return resolve(file);
+          const newName = file.name.replace(/\.\w+$/, '.jpg');
+          const compressed = new File([blob], newName, {
+            type: 'image/jpeg',
+            lastModified: file.lastModified || Date.now(),
+          });
+          resolve(compressed);
+        }, 'image/jpeg', quality);
+      } catch {
+        URL.revokeObjectURL(url);
+        resolve(file);
+      }
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+    img.src = url;
+  });
 }
 
 /* ============================================================
@@ -182,15 +254,16 @@ async function renderDetail(id) {
   let preview = '';
   if (isImg) {
     preview = `<img class="dh-preview__img" src="${url}" alt="">`;
-  } else if (isPdf) {
-    preview = `<iframe class="dh-preview__pdf" src="${url}" title="PDF"></iframe>`;
   } else {
-    const extLabel = (file.ext || '').toUpperCase() || 'FILE';
+    const extLabel = (file.ext || '').toUpperCase() || (isPdf ? 'PDF' : 'FILE');
+    const hint = isPdf
+      ? 'Tap OPEN to view in your PDF reader.'
+      : 'No preview available — tap OPEN to view in another app.';
     preview = `
-      <div class="dh-preview__icon">
+      <div class="dh-preview__icon ${isPdf ? 'dh-preview__icon--pdf' : ''}">
         <div class="dh-preview__sheet"></div>
         <div class="dh-preview__ext">${escapeHtml(extLabel)}</div>
-        <div class="dh-preview__hint">No preview available — tap OPEN to view in another app.</div>
+        <div class="dh-preview__hint">${hint}</div>
       </div>`;
   }
 
@@ -210,7 +283,12 @@ async function renderDetail(id) {
       </div>
       <div class="dh-meta__row">
         <span class="dh-meta__k">SIZE</span>
-        <span class="dh-meta__v">${formatSize(file.size)}</span>
+        <span class="dh-meta__v">
+          ${formatSize(file.size)}
+          ${file.originalSize && file.originalSize > file.size
+            ? `<span class="dh-meta__hint">compressed from ${formatSize(file.originalSize)}</span>`
+            : ''}
+        </span>
       </div>
       <div class="dh-meta__row">
         <span class="dh-meta__k">ADDED</span>
