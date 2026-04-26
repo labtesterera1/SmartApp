@@ -22,7 +22,7 @@ let _objectUrls = [];     // tracked so we can revoke on cleanup
 export default {
   id: 'documents',
   name: 'Document Hub',
-  tagline: 'capture · store · view',
+  tagline: 'capture · store · share',
   status: 'ready',
 
   async render(root) {
@@ -173,10 +173,6 @@ async function onFileChosen(e) {
       blob,
       createdAt: baseTime + i,
       updatedAt: baseTime + i,
-      // placeholders for upcoming steps
-      extracted: null,    // 2b: AI extraction result
-      onedriveId: null,   // 2c: OneDrive item id
-      syncedAt: null,
     };
     await db.put(STORE, record);
   }
@@ -303,11 +299,34 @@ async function renderDetail(id) {
       <button class="btn vault-actions__del" id="del">DELETE</button>
     </div>
 
-    <div class="dh-soon">
-      <div class="dh-soon__head">COMING IN NEXT STEPS</div>
-      <div class="dh-soon__row">2b · AI EXTRACT (merchant, date, total) — image / PDF</div>
-      <div class="dh-soon__row">2c · ONEDRIVE AUTO-SYNC</div>
-      <div class="dh-soon__row">2d · SHARE: WHATSAPP / EMAIL / PRINT / CSV</div>
+    <div class="dh-share">
+      <div class="dh-share__head">SEND OUT</div>
+      <button class="btn btn--primary dh-share__main" id="sh-native">
+        📤&nbsp; SHARE FILE
+      </button>
+      <div class="dh-share__row">
+        <button class="dh-share__btn" id="sh-wa" type="button">
+          <span class="dh-share__icon">💬</span>
+          <span class="dh-share__lbl">WhatsApp</span>
+        </button>
+        <button class="dh-share__btn" id="sh-email" type="button">
+          <span class="dh-share__icon">✉</span>
+          <span class="dh-share__lbl">Email</span>
+        </button>
+        <button class="dh-share__btn" id="sh-print" type="button">
+          <span class="dh-share__icon">🖨</span>
+          <span class="dh-share__lbl">Print</span>
+        </button>
+        <button class="dh-share__btn" id="sh-copy" type="button">
+          <span class="dh-share__icon">📋</span>
+          <span class="dh-share__lbl">Copy</span>
+        </button>
+      </div>
+      <div class="dh-share__hint">
+        SHARE FILE attaches the actual file via Android's share sheet
+        (WhatsApp, Drive, Telegram, etc.). The 4 buttons below send a
+        text summary to those apps — files don't attach via direct links.
+      </div>
     </div>
   `;
 
@@ -329,6 +348,108 @@ async function renderDetail(id) {
     renderGrid();
     toast('✓ Deleted');
   };
+
+  // Share row
+  _root.querySelector('#sh-native').onclick = () => shareNative(file);
+  _root.querySelector('#sh-wa').onclick     = () => shareWhatsApp(file);
+  _root.querySelector('#sh-email').onclick  = () => shareEmail(file);
+  _root.querySelector('#sh-print').onclick  = () => printFile(file, url);
+  _root.querySelector('#sh-copy').onclick   = () => copyInfo(file);
+}
+
+/* ============================================================
+   Share handlers
+   ============================================================ */
+
+async function shareNative(file) {
+  if (!navigator.share) {
+    toast('Sharing not supported on this browser', 'warn');
+    return;
+  }
+  const fileObj = new File([file.blob], file.name, {
+    type: file.mime,
+    lastModified: file.createdAt,
+  });
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [fileObj] })) {
+      await navigator.share({
+        title: file.name,
+        text: file.name,
+        files: [fileObj],
+      });
+      toast('✓ Shared');
+    } else {
+      // File-share not supported — fall back to text-only
+      await navigator.share({
+        title: file.name,
+        text: `${file.name} · ${formatSize(file.size)}`,
+      });
+      toast('Text shared (file attach not supported here)', 'warn');
+    }
+  } catch (err) {
+    if (err.name === 'AbortError') return;       // user cancelled
+    toast('Share failed: ' + err.message, 'err');
+  }
+}
+
+function shareWhatsApp(file) {
+  const text = encodeURIComponent(
+    `📄 ${file.name}\n` +
+    `${formatSize(file.size)} · ${new Date(file.createdAt).toLocaleDateString()}\n\n` +
+    `(Use SHARE FILE button to attach the actual file.)`
+  );
+  window.open(`https://wa.me/?text=${text}`, '_blank');
+}
+
+function shareEmail(file) {
+  const subject = encodeURIComponent(`File: ${file.name}`);
+  const body = encodeURIComponent(
+    `${file.name}\n` +
+    `Size: ${formatSize(file.size)}\n` +
+    `Type: ${file.mime}\n` +
+    `Added: ${new Date(file.createdAt).toLocaleString()}\n\n` +
+    `(Use SHARE FILE to attach the actual file.)`
+  );
+  window.location.href = `mailto:?subject=${subject}&body=${body}`;
+}
+
+function printFile(file, url) {
+  if ((file.mime || '').startsWith('image/')) {
+    const w = window.open('', '_blank');
+    if (!w) { toast('Popup blocked — allow popups to print', 'warn'); return; }
+    w.document.write(
+      '<!doctype html><html><head>' +
+      `<title>${escapeHtml(file.name)}</title>` +
+      '<style>' +
+        'body{margin:0;padding:0;background:#fff;}' +
+        'img{display:block;max-width:100%;height:auto;margin:0 auto;}' +
+        '@media print{@page{margin:1cm;}}' +
+      '</style></head><body>' +
+      `<img src="${url}" onload="setTimeout(function(){window.print();},150)">` +
+      '</body></html>'
+    );
+    w.document.close();
+  } else if (file.mime === 'application/pdf') {
+    const w = window.open(url, '_blank');
+    if (!w) { toast('Popup blocked — open then print manually', 'warn'); return; }
+    setTimeout(() => { try { w.print(); } catch {} }, 1500);
+  } else {
+    toast('Print not available for this file type', 'warn');
+  }
+}
+
+async function copyInfo(file) {
+  const text =
+    `${file.name}\n` +
+    `Size: ${formatSize(file.size)}\n` +
+    `Type: ${file.mime}\n` +
+    `Added: ${new Date(file.createdAt).toLocaleString()}`;
+  try {
+    await navigator.clipboard.writeText(text);
+    toast('✓ Info copied');
+  } catch {
+    toast('Copy failed — clipboard blocked', 'err');
+  }
 }
 
 /* ============================================================
