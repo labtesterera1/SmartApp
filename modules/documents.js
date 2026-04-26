@@ -10,6 +10,7 @@
    ============================================================ */
 
 import { db } from '../core/storage.js';
+import { toast } from '../core/ui.js';
 
 const STORE = 'documents';
 
@@ -297,8 +298,8 @@ async function renderDetail(id) {
     </div>
 
     <div class="dh-detail-actions">
-      <a class="btn" href="${url}" download="${escapeHtml(file.name)}">DOWNLOAD</a>
-      <a class="btn" href="${url}" target="_blank" rel="noopener">OPEN</a>
+      <a class="btn" id="dh-dl" href="${url}" download="${escapeHtml(file.name)}">DOWNLOAD</a>
+      <a class="btn" id="dh-open" href="${url}" target="_blank" rel="noopener">OPEN</a>
       <button class="btn vault-actions__del" id="del">DELETE</button>
     </div>
 
@@ -314,12 +315,19 @@ async function renderDetail(id) {
     _viewing = null;
     renderGrid();
   };
+  _root.querySelector('#dh-dl').addEventListener('click', () => {
+    toast('✓ Saved to Downloads');
+  });
+  _root.querySelector('#dh-open').addEventListener('click', () => {
+    toast('Opening…');
+  });
   _root.querySelector('#del').onclick = async () => {
     if (!confirm(`Delete "${file.name}"? This cannot be undone.`)) return;
     await db.delete(STORE, file.id);
     await refreshCache();
     _viewing = null;
     renderGrid();
+    toast('✓ Deleted');
   };
 }
 
