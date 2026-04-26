@@ -620,3 +620,264 @@ a { color: var(--lime); text-decoration: none; }
   flex: 0 0 auto !important;
 }
 .vault-actions__del:hover { background: rgba(255, 122, 58, 0.08); }
+
+/* ============================================================
+   DOCUMENT HUB module
+   ============================================================ */
+
+/* Top bar — count + total size */
+.dh-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  margin-bottom: 14px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+}
+.dh-bar__count { color: var(--ink); font-weight: 700; }
+.dh-bar__size  { color: var(--ink-faint); }
+
+/* Action row: Camera + Pick */
+.dh-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.dh-actions__btn {
+  cursor: pointer;
+  text-align: center;
+  position: relative;
+}
+
+/* Grid */
+.dh-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+@media (min-width: 520px) {
+  .dh-grid { grid-template-columns: repeat(3, 1fr); }
+}
+@media (min-width: 800px) {
+  .dh-grid { grid-template-columns: repeat(4, 1fr); }
+}
+
+/* Cell */
+.dh-cell {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-tile);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  text-align: left;
+  transition: border-color 0.15s, transform 0.1s;
+  padding: 0;
+}
+.dh-cell:hover  { border-color: var(--lime-dim); }
+.dh-cell:active { transform: scale(0.99); }
+
+.dh-cell__img {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  display: block;
+  background: var(--bg-soft);
+}
+
+/* Icon tile (PDFs, Office docs, archives) */
+.dh-cell__icon {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  background: var(--bg-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  border-bottom: 1px solid var(--line-soft);
+}
+.dh-cell__sheet {
+  width: 56%;
+  height: 70%;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  position: relative;
+  background-image:
+    linear-gradient(to right, transparent 18%, var(--line-soft) 18%, var(--line-soft) 82%, transparent 82%);
+  background-size: 100% 6px;
+  background-repeat: repeat-y;
+  background-position: 0 22%;
+}
+.dh-cell__sheet::before {
+  /* folded corner */
+  content: "";
+  position: absolute;
+  top: -1px; right: -1px;
+  width: 14px; height: 14px;
+  background: var(--bg-tile);
+  border-left: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.dh-cell__ext {
+  position: absolute;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--lime);
+  background: var(--bg);
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+}
+.dh-cell__icon--pdf .dh-cell__ext { color: var(--warn); }
+
+.dh-cell__meta {
+  padding: 8px 10px 10px;
+}
+.dh-cell__name {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dh-cell__sub {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  color: var(--ink-dim);
+  margin-top: 3px;
+}
+
+/* Detail view */
+.dh-preview {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--bg-soft);
+  margin-bottom: 14px;
+}
+.dh-preview__img {
+  width: 100%;
+  display: block;
+  max-height: 60vh;
+  object-fit: contain;
+  background: #000;
+}
+.dh-preview__pdf {
+  width: 100%;
+  height: 60vh;
+  border: 0;
+  background: #fff;
+}
+.dh-preview__icon {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 40px 20px;
+}
+.dh-preview__sheet {
+  width: 100px; height: 130px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  position: relative;
+  margin-bottom: 12px;
+  background-image:
+    linear-gradient(to right, transparent 15%, var(--line-soft) 15%, var(--line-soft) 85%, transparent 85%);
+  background-size: 100% 8px;
+  background-repeat: repeat-y;
+  background-position: 0 25%;
+}
+.dh-preview__sheet::before {
+  content: "";
+  position: absolute;
+  top: -1px; right: -1px;
+  width: 22px; height: 22px;
+  background: var(--bg-soft);
+  border-left: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.dh-preview__ext {
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  color: var(--lime);
+  font-weight: 700;
+  margin-top: 4px;
+}
+.dh-preview__hint {
+  margin-top: 10px;
+  font-size: 10px;
+  color: var(--ink-faint);
+  text-align: center;
+  letter-spacing: 0.04em;
+}
+
+/* Metadata table */
+.dh-meta {
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  margin-bottom: 14px;
+  overflow: hidden;
+}
+.dh-meta__row {
+  display: grid;
+  grid-template-columns: 70px 1fr;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line-soft);
+  font-family: var(--mono);
+  font-size: 11px;
+  align-items: center;
+  gap: 10px;
+}
+.dh-meta__row:last-child { border-bottom: 0; }
+.dh-meta__k { color: var(--ink-faint); letter-spacing: 0.14em; }
+.dh-meta__v {
+  color: var(--ink);
+  word-break: break-all;
+  overflow-wrap: anywhere;
+}
+
+/* Actions */
+.dh-detail-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+.dh-detail-actions .btn {
+  flex: 1;
+  min-width: 100px;
+  text-decoration: none;
+}
+
+/* Coming soon notice (transparency about what's not built yet) */
+.dh-soon {
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  background: rgba(255,255,255,0.012);
+}
+.dh-soon__head {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  color: var(--ink-faint);
+  margin-bottom: 8px;
+}
+.dh-soon__row {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--ink-dim);
+  padding: 3px 0;
+}
