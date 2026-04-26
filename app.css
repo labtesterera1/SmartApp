@@ -930,3 +930,67 @@ a { color: var(--lime); text-decoration: none; }
 .toast--show { opacity: 1; transform: translate(-50%, 0); }
 .toast--warn { border-color: var(--warn); color: var(--warn); }
 .toast--err  { border-color: #ff5c5c; color: #ff5c5c; }
+
+/* ============================================================
+   Document Hub — share row (Step 2b)
+   ============================================================ */
+.dh-share {
+  margin-top: 4px;
+  padding: 14px 14px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(212, 255, 58, 0.018);
+}
+.dh-share__head {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  color: var(--lime);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.dh-share__head::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line-soft);
+}
+.dh-share__main {
+  width: 100%;
+  margin-bottom: 8px;
+  font-size: 13px !important;
+  padding: 14px 18px !important;
+}
+.dh-share__row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+.dh-share__btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 4px;
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--ink);
+  font-family: var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  transition: all 0.15s ease;
+}
+.dh-share__btn:hover  { border-color: var(--lime-dim); color: var(--lime); }
+.dh-share__btn:active { transform: scale(0.97); }
+.dh-share__icon { font-size: 18px; line-height: 1; }
+.dh-share__lbl  { font-size: 9px; }
+.dh-share__hint {
+  margin-top: 10px;
+  font-size: 9px;
+  color: var(--ink-faint);
+  letter-spacing: 0.04em;
+  line-height: 1.55;
+}
