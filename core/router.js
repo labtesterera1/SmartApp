@@ -68,7 +68,7 @@ function buildTile(mod, index) {
 }
 
 /* ---------- Module open/close ---------- */
-function openModule(mod) {
+async function openModule(mod) {
   cleanupActiveModule();
   setTopbarTitle(mod.name.toUpperCase());
 
@@ -85,9 +85,9 @@ function openModule(mod) {
   view.querySelector('#back').addEventListener('click', showLauncher);
 
   const root = view.querySelector('#module-root');
+  activeModule = mod;
   try {
-    mod.render(root);
-    activeModule = mod;
+    await mod.render(root);
   } catch (err) {
     console.error(`[${mod.id}] render failed:`, err);
     root.innerHTML = `<div class="placeholder">
