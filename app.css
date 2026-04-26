@@ -85,6 +85,17 @@ a { color: var(--lime); text-decoration: none; }
   font-weight: 500;
 }
 .topbar__id { color: var(--ink); font-weight: 700; }
+.topbar__ver {
+  margin-left: 6px;
+  padding: 1px 5px;
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  color: var(--lime);
+  border: 1px solid var(--lime-dim);
+  border-radius: 3px;
+  background: rgba(212, 255, 58, 0.06);
+}
 
 .dot {
   width: 7px; height: 7px;
@@ -845,6 +856,14 @@ a { color: var(--lime); text-decoration: none; }
   color: var(--ink);
   word-break: break-all;
   overflow-wrap: anywhere;
+}
+.dh-meta__hint {
+  display: block;
+  margin-top: 2px;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  color: var(--lime-dim);
+  text-transform: uppercase;
 }
 
 /* Actions */
