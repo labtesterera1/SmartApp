@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0c0b09" />
+  <title>SmartApp</title>
+
+  <!-- Fonts: Instrument Serif (display) + JetBrains Mono (UI) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;700&display=swap" />
+
+  <link rel="stylesheet" href="./app.css" />
+  <link rel="manifest" href="./manifest.json" />
+</head>
+
+<body>
+  <!-- Status bar: persistent across launcher + modules -->
+  <header class="topbar" id="topbar">
+    <div class="topbar__left">
+      <span class="dot"></span>
+      <span class="topbar__id">SMARTAPP</span>
+    </div>
+    <div class="topbar__center" id="topbar-title">HOME</div>
+    <div class="topbar__right">
+      <span id="clock">--:--</span>
+    </div>
+  </header>
+
+  <!-- Main view container: launcher OR active module renders here -->
+  <main id="view" class="view"></main>
+
+  <!-- Bottom ruler -->
+  <footer class="ruler" aria-hidden="true">
+    <div class="ruler__track"></div>
+    <div class="ruler__label">v0.1 · local</div>
+  </footer>
+
+  <!-- Boot the app -->
+  <script type="module">
+    import { startApp } from './core/router.js';
+    startApp();
+  </script>
+</body>
+</html>

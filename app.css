@@ -1,0 +1,366 @@
+/* ============================================================
+   SmartApp — design tokens & shell
+   Aesthetic: warm near-black + acid lime, instrument panel
+   ============================================================ */
+
+:root {
+  /* Palette */
+  --bg:        #0c0b09;
+  --bg-soft:   #14130f;
+  --bg-tile:   #16140f;
+  --line:      #2a2620;
+  --line-soft: #1c1a15;
+  --ink:       #f5efe0;
+  --ink-dim:   #8a857a;
+  --ink-faint: #4a463e;
+  --lime:      #d4ff3a;
+  --lime-dim:  #8da524;
+  --warn:      #ff7a3a;
+  --ok:        #6fe27c;
+
+  /* Type */
+  --serif: "Instrument Serif", "Times New Roman", serif;
+  --mono:  "JetBrains Mono", ui-monospace, Menlo, monospace;
+
+  /* Rhythm */
+  --pad:   16px;
+  --gap:   14px;
+  --radius: 6px;
+
+  /* Safe-area padding for installed PWA */
+  --safe-top:    env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+
+body {
+  /* Subtle paper-grain so the dark isn't flat */
+  background-image:
+    radial-gradient(circle at 20% 10%, rgba(212,255,58,0.025), transparent 40%),
+    radial-gradient(circle at 80% 90%, rgba(212,255,58,0.018), transparent 45%);
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding-top: var(--safe-top);
+  padding-bottom: var(--safe-bottom);
+}
+
+button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
+input, textarea, select { font: inherit; color: inherit; }
+a { color: var(--lime); text-decoration: none; }
+
+/* ============================================================
+   Top status bar
+   ============================================================ */
+.topbar {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  padding: 10px var(--pad);
+  border-bottom: 1px solid var(--line-soft);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+.topbar__left  { display: flex; align-items: center; gap: 8px; justify-self: start; }
+.topbar__right { justify-self: end; }
+.topbar__center {
+  justify-self: center;
+  color: var(--ink);
+  font-weight: 500;
+}
+.topbar__id { color: var(--ink); font-weight: 700; }
+
+.dot {
+  width: 7px; height: 7px;
+  background: var(--lime);
+  border-radius: 50%;
+  box-shadow: 0 0 8px var(--lime);
+  animation: pulse 2.4s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%,100% { opacity: 0.55; }
+  50%     { opacity: 1; }
+}
+
+/* ============================================================
+   Main view
+   ============================================================ */
+.view {
+  flex: 1;
+  padding: 20px var(--pad) 24px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ============================================================
+   Launcher
+   ============================================================ */
+.launcher__hello {
+  margin: 8px 0 28px;
+}
+.launcher__hello h1 {
+  font-family: var(--serif);
+  font-size: 56px;
+  line-height: 0.95;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+.launcher__hello h1 em {
+  color: var(--lime);
+  font-style: italic;
+}
+.launcher__hello p {
+  margin-top: 10px;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+.launcher__sectionlabel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin: 4px 0 12px;
+}
+.launcher__sectionlabel::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line-soft);
+}
+
+.tilegrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--gap);
+}
+
+/* Tile: corner-bracketed instrument card */
+.tile {
+  position: relative;
+  background: var(--bg-tile);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 22px 20px 18px;
+  text-align: left;
+  width: 100%;
+  display: block;
+  transition: transform 0.12s ease, border-color 0.2s ease;
+}
+.tile:active { transform: scale(0.985); }
+.tile:hover  { border-color: var(--lime-dim); }
+
+/* Corner brackets — the viewfinder detail */
+.tile::before,
+.tile::after,
+.tile > .tile__br1,
+.tile > .tile__br2 {
+  content: "";
+  position: absolute;
+  width: 12px; height: 12px;
+  border: 1px solid var(--lime);
+  pointer-events: none;
+}
+.tile::before          { top: 6px;    left: 6px;    border-right: none; border-bottom: none; }
+.tile::after           { top: 6px;    right: 6px;   border-left:  none; border-bottom: none; }
+.tile > .tile__br1     { bottom: 6px; left: 6px;    border-right: none; border-top:    none; }
+.tile > .tile__br2     { bottom: 6px; right: 6px;   border-left:  none; border-top:    none; }
+
+.tile__index {
+  position: absolute;
+  top: 14px;
+  right: 22px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-faint);
+  letter-spacing: 0.12em;
+}
+
+.tile__name {
+  font-family: var(--serif);
+  font-size: 30px;
+  line-height: 1;
+  font-weight: 400;
+  color: var(--ink);
+  margin-bottom: 8px;
+}
+.tile__tag {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+.tile__row {
+  margin-top: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.tile__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-dim);
+}
+.tile__status .pip { width: 6px; height: 6px; border-radius: 50%; background: var(--ink-faint); }
+.tile__status.is-ready    .pip { background: var(--lime); box-shadow: 0 0 6px var(--lime); }
+.tile__status.is-ready          { color: var(--lime); }
+.tile__status.is-soon     .pip { background: var(--warn); }
+.tile__status.is-soon           { color: var(--warn); }
+
+.tile__chev { color: var(--ink-dim); font-size: 14px; }
+
+/* ============================================================
+   Module screen scaffolding (shared by all modules)
+   ============================================================ */
+.screen { padding-top: 4px; }
+.screen__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  margin-bottom: 12px;
+}
+.screen__back:hover { color: var(--lime); }
+.screen__title {
+  font-family: var(--serif);
+  font-size: 44px;
+  line-height: 1;
+  margin-bottom: 6px;
+}
+.screen__subtitle {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  margin-bottom: 22px;
+}
+
+/* Placeholder card for stub modules */
+.placeholder {
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  padding: 30px 20px;
+  text-align: center;
+  color: var(--ink-dim);
+  background:
+    repeating-linear-gradient(
+      45deg,
+      transparent 0,
+      transparent 8px,
+      rgba(255,255,255,0.012) 8px,
+      rgba(255,255,255,0.012) 16px
+    );
+}
+.placeholder__icon {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 40px;
+  color: var(--lime);
+  margin-bottom: 8px;
+}
+
+/* ============================================================
+   Bottom ruler
+   ============================================================ */
+.ruler {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px var(--pad) 10px;
+  border-top: 1px solid var(--line-soft);
+}
+.ruler__track {
+  flex: 1;
+  height: 10px;
+  background-image:
+    linear-gradient(to right, var(--line) 1px, transparent 1px);
+  background-size: 8px 100%;
+  background-position: 0 100%;
+  background-repeat: repeat-x;
+  position: relative;
+}
+.ruler__track::before {
+  /* taller ticks every 5 */
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(to right, var(--ink-faint) 1px, transparent 1px);
+  background-size: 40px 100%;
+  background-position: 0 100%;
+  background-repeat: repeat-x;
+}
+.ruler__label {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+/* ============================================================
+   Buttons (shared by future modules)
+   ============================================================ */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-soft);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  transition: all 0.15s ease;
+}
+.btn:hover { border-color: var(--lime-dim); }
+.btn--primary {
+  background: var(--lime);
+  color: var(--bg);
+  border-color: var(--lime);
+  font-weight: 700;
+}
+.btn--primary:hover { filter: brightness(1.05); }
+
+/* ============================================================
+   Responsive: small tablets get a 2-col grid
+   ============================================================ */
+@media (min-width: 520px) {
+  .tilegrid { grid-template-columns: 1fr 1fr; }
+  .launcher__hello h1 { font-size: 72px; }
+}
