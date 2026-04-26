@@ -9,6 +9,7 @@ import ledger     from '../modules/ledger.js';
 import documents  from '../modules/documents.js';
 import sweep      from '../modules/sweep.js';
 import vault      from '../modules/vault.js';
+import { VERSION, BUILD } from './version.js';
 
 // ↓↓↓ THE REGISTRY — edit this to add/remove icons ↓↓↓
 const MODULES = [ledger, documents, sweep, vault];
@@ -18,7 +19,15 @@ let activeModule = null;
 
 export function startApp() {
   startClock();
+  injectVersion();
   showLauncher();
+}
+
+function injectVersion() {
+  const top = document.getElementById('topbar-id');
+  if (top) top.innerHTML = `SMARTAPP <span class="topbar__ver">v${VERSION}</span>`;
+  const bot = document.querySelector('.ruler__label');
+  if (bot) bot.textContent = `v${VERSION} · ${BUILD}`;
 }
 
 /* ---------- Launcher ---------- */
