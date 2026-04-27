@@ -30,6 +30,7 @@
     <div class="topbar__center" id="topbar-title">HOME</div>
     <div class="topbar__right">
       <span id="clock">--:--</span>
+      <button class="topbar__gear" id="open-settings" title="Settings">⚙</button>
     </div>
   </header>
 
@@ -45,12 +46,6 @@
 
   <!-- Hidden file input for avatar upload -->
   <input type="file" id="avatar-input" accept="image/*" hidden>
-
-  <!-- PWA install prompt (shown when Chrome offers it) -->
-  <button class="install-prompt" id="install-prompt" hidden>
-    <span>📱</span>
-    <span>INSTALL APP</span>
-  </button>
 
   <!-- Boot the app -->
   <script type="module">

@@ -1349,3 +1349,151 @@ a { color: var(--lime); text-decoration: none; }
   0%, 100% { box-shadow: 0 6px 20px rgba(0,0,0,0.5), 0 0 0 4px rgba(212, 255, 58, 0.12); }
   50%      { box-shadow: 0 6px 20px rgba(0,0,0,0.5), 0 0 0 8px rgba(212, 255, 58, 0.06); }
 }
+
+/* ============================================================
+   v0.7 — Sign-Up Kit, Settings screen, preview toggle
+   ============================================================ */
+
+/* Topbar gear button */
+.topbar__right {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.topbar__gear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-dim);
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.topbar__gear:hover  { color: var(--lime); border-color: var(--lime-dim); }
+.topbar__gear:active { transform: rotate(60deg); }
+
+/* Remove the floating install button (no longer used) */
+.install-prompt { display: none !important; }
+
+/* Settings screen cards */
+.set-card {
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  margin-bottom: 14px;
+  overflow: hidden;
+}
+.set-card__head {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  color: var(--lime);
+  padding: 10px 14px 8px;
+  border-bottom: 1px solid var(--line-soft);
+  background: rgba(212, 255, 58, 0.025);
+}
+.set-row {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 14px;
+  font-family: var(--mono);
+  font-size: 12px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.set-row:last-child { border-bottom: 0; }
+.set-row__k {
+  color: var(--ink-faint);
+  letter-spacing: 0.14em;
+  font-size: 10px;
+}
+.set-row__v {
+  color: var(--ink);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.set-row__note {
+  padding: 8px 14px 12px;
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--ink-dim);
+  border-top: 1px dashed var(--line-soft);
+}
+.set-install {
+  width: 100%;
+  margin: 10px 14px 8px;
+  width: calc(100% - 28px);
+}
+
+/* Vault preview-toggle: highlight when active */
+.rich-btn.is-active {
+  color: var(--lime);
+  border-color: var(--lime-dim);
+  background: rgba(212, 255, 58, 0.08);
+}
+
+/* Sign-Up Kit — list view */
+.su-bar {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  margin-bottom: 14px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+}
+.su-bar__count { color: var(--ink); font-weight: 700; }
+.su-add { width: 100%; margin-bottom: 16px; }
+.su-list { display: flex; flex-direction: column; gap: 8px; }
+.su-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 16px;
+  background: var(--bg-tile);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  text-align: left;
+  transition: border-color 0.15s, transform 0.1s;
+}
+.su-row:hover  { border-color: var(--lime-dim); }
+.su-row:active { transform: scale(0.99); }
+.su-row__main  { flex: 1; min-width: 0; }
+.su-row__title {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.su-row__sub {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-dim);
+  margin-top: 3px;
+}
+.su-row__chev { color: var(--ink-dim); font-size: 14px; }
+
+.su-editor-head { margin-bottom: 16px; }
+
+/* Sign-Up Kit notes — copy button overlaid on textarea (no preview clutter) */
+.su-notes { position: relative; }
+.su-notes__area { padding-right: 44px; }
+.su-notes__copy {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 4px 8px !important;
+  z-index: 2;
+}
