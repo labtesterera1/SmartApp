@@ -108,9 +108,9 @@ function rowHtml(e) {
    Editor
    ============================================================ */
 const FIELDS = [
-  { key: 'username',     label: 'Username',     type: 'text' },
-  { key: 'domain',       label: 'Domain',       type: 'select', options: DOMAINS },
-  { key: 'domainCustom', label: 'Custom Domain', type: 'text', dependsOn: { domain: 'Others' } },
+  { key: 'username',     label: 'Username',     type: 'text', triggersAutoFill: true },
+  { key: 'domain',       label: 'Domain',       type: 'select', options: DOMAINS, triggersAutoFill: true },
+  { key: 'domainCustom', label: 'Custom Domain', type: 'text', dependsOn: { domain: 'Others' }, triggersAutoFill: true },
   { key: 'firstName',    label: 'First Name',   type: 'text' },
   { key: 'lastName',     label: 'Last Name',    type: 'text' },
   { key: 'accountName',  label: 'Account Name', type: 'text' },
@@ -142,6 +142,13 @@ function renderEditor(state) {
   const fieldsRoot = _root.querySelector('#fields');
   FIELDS.forEach(def => fieldsRoot.appendChild(buildField(def, entry)));
 
+  // For existing entries, treat the saved accountName as user-set so we don't
+  // overwrite it from autofill unless they clear it manually.
+  const acctEl = fieldsRoot.querySelector('[data-key="accountName"]');
+  if (acctEl && !isNew && acctEl.value) {
+    acctEl.dataset.lastAuto = '__user__';   // never matches the auto pattern
+  }
+
   _root.querySelector('#back').onclick   = backToList;
   _root.querySelector('#cancel').onclick = backToList;
   _root.querySelector('#save').onclick   = () => saveEntry(entry, isNew);
@@ -172,6 +179,7 @@ function buildField(def, entry) {
     wrap.querySelector('select').addEventListener('change', e => {
       entry[def.key] = e.target.value;
       applyDependencies(_root.querySelector('#fields'));
+      if (def.triggersAutoFill) maybeAutoFillAccountName();
     });
     wrap.querySelector('[data-act="copy"]').onclick = () =>
       copyValue(wrap.querySelector('select').value);
@@ -205,8 +213,37 @@ function buildField(def, entry) {
     </div>
   `;
   const input = wrap.querySelector('input');
+  if (def.triggersAutoFill) {
+    input.addEventListener('input', maybeAutoFillAccountName);
+  }
   wrap.querySelector('[data-act="copy"]').onclick = () => copyValue(input.value);
   return wrap;
+}
+
+/* Auto-fill Account Name from Username + Domain.
+   Only writes if the field is empty OR currently equals the previous auto-value
+   (so a user's manual override is never clobbered). */
+function maybeAutoFillAccountName() {
+  const fieldsRoot = _root.querySelector('#fields');
+  if (!fieldsRoot) return;
+  const usernameEl = fieldsRoot.querySelector('[data-key="username"]');
+  const domainEl   = fieldsRoot.querySelector('[data-key="domain"]');
+  const customEl   = fieldsRoot.querySelector('[data-key="domainCustom"]');
+  const acctEl     = fieldsRoot.querySelector('[data-key="accountName"]');
+  if (!usernameEl || !domainEl || !acctEl) return;
+
+  const username = (usernameEl.value || '').trim();
+  let domain = (domainEl.value || '').trim();
+  if (domain === 'Others') domain = (customEl?.value || '').trim();
+  if (!username || !domain) return;
+
+  const next = `${username}@${domain.toLowerCase()}`;
+  const current = (acctEl.value || '').trim();
+  // Manual override protection: only fill if empty or matches previous auto-value
+  if (current === '' || current === acctEl.dataset.lastAuto) {
+    acctEl.value = next;
+    acctEl.dataset.lastAuto = next;
+  }
 }
 
 function applyDependencies(fieldsRoot) {
