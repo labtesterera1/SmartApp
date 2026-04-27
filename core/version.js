@@ -5,5 +5,5 @@
    Bump this on each meaningful release.
    ============================================================ */
 
-export const VERSION = '0.7';
-export const BUILD   = 'signup-fixes';
+export const VERSION = '0.8';
+export const BUILD   = 'sweep-module';
