@@ -11,6 +11,7 @@
    ============================================================ */
 
 import { toast } from '../core/ui.js';
+import { recordActivity } from '../core/profile.js';
 
 const STORAGE_KEY = 'smartapp_vault_v1';
 const PBKDF2_ITERATIONS = 250000;
@@ -219,6 +220,8 @@ function renderList() {
   const sorted = [..._entries].sort((a, b) => (b.updatedAt||0) - (a.updatedAt||0));
 
   _root.innerHTML = `
+    <div class="vault-banner">🔒 ENCRYPTED LOCALLY · NO SYNC</div>
+
     <div class="vault-bar">
       <span class="vault-bar__count">
         ${_entries.length} ENTR${_entries.length === 1 ? 'Y' : 'IES'}
@@ -242,9 +245,12 @@ function renderList() {
 
     <div class="vault-list">
       ${sorted.length === 0
-        ? `<div class="placeholder">
-             <div class="placeholder__icon">·</div>
-             No entries yet. Tap one of the + buttons above.
+        ? `<div class="empty-card">
+             <div class="empty-card__icon">⊕</div>
+             <div class="empty-card__title">No entries yet</div>
+             <div class="empty-card__desc">
+               Start with the kind that fits — pick one above.
+             </div>
            </div>`
         : sorted.map(rowHtml).join('')}
     </div>
@@ -416,6 +422,7 @@ function buildField(def, entry) {
 
   if (def.type === 'rich') {
     wrap.classList.add('vault-field--rich');
+    const isCasual = !!entry._casualNotes;
     wrap.innerHTML = `
       <span class="vault-field__label">${def.label}</span>
       <div class="rich-toolbar">
@@ -423,23 +430,36 @@ function buildField(def, entry) {
         <button type="button" class="rich-btn" data-act="headline" title="Headline"><b>H</b></button>
         <button type="button" class="rich-btn" data-act="color"    title="Color"><span style="color:var(--lime)">◐</span></button>
         <button type="button" class="rich-btn" data-act="preview"  title="Toggle preview"><span>👁</span></button>
+        <button type="button" class="rich-btn ${isCasual ? 'is-active' : ''}" data-act="casual" title="Casual reading mode">aA</button>
         <span class="rich-spacer"></span>
         <button type="button" class="rich-btn rich-btn--copy" data-act="copy" title="Copy">⧉</button>
       </div>
-      <textarea class="vault-textarea rich-area" data-key="${def.key}"
+      <textarea class="vault-textarea rich-area ${isCasual ? 'is-casual' : ''}" data-key="${def.key}"
                 rows="4" placeholder="Markers: **bold**  ## headline  [lime]text[/lime]">${esc(value)}</textarea>
-      <div class="rich-preview" data-for="${def.key}" hidden></div>
+      <div class="rich-preview ${isCasual ? 'is-casual' : ''}" data-for="${def.key}" hidden></div>
     `;
     const ta      = wrap.querySelector('textarea');
     const preview = wrap.querySelector('.rich-preview');
     const previewBtn = wrap.querySelector('[data-act="preview"]');
+    const casualBtn  = wrap.querySelector('[data-act="casual"]');
     autoGrow(ta);
     ta.addEventListener('input', () => {
       autoGrow(ta);
       if (!preview.hidden) renderRichPreview(preview, ta.value);
     });
     wrap.querySelectorAll('.rich-btn').forEach(b => {
-      b.onclick = () => handleRichAction(b.dataset.act, ta, preview, previewBtn);
+      b.onclick = () => {
+        if (b.dataset.act === 'casual') {
+          const willBeCasual = !ta.classList.contains('is-casual');
+          ta.classList.toggle('is-casual', willBeCasual);
+          preview.classList.toggle('is-casual', willBeCasual);
+          casualBtn.classList.toggle('is-active', willBeCasual);
+          entry._casualNotes = willBeCasual;
+          autoGrow(ta);
+          return;
+        }
+        handleRichAction(b.dataset.act, ta, preview, previewBtn);
+      };
     });
     return wrap;
   }
@@ -632,6 +652,7 @@ async function saveEntry(entry, defs, isNew) {
   next.history = entry.history || {};
   next.createdAt = entry.createdAt || Date.now();
   next.updatedAt = Date.now();
+  if (entry._casualNotes) next._casualNotes = true;
 
   // Validate per kind
   const titleField = displayTitle(next);
@@ -661,6 +682,7 @@ async function saveEntry(entry, defs, isNew) {
     _entries[i] = next;
   }
   await persist();
+  recordActivity('vault', displayTitle(next));
   toast(isNew ? '✓ Entry created' : '✓ Saved');
   backToList();
 }

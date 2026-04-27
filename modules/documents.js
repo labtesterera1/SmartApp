@@ -11,6 +11,7 @@
 
 import { db } from '../core/storage.js';
 import { toast } from '../core/ui.js';
+import { recordActivity } from '../core/profile.js';
 
 const STORE = 'documents';
 const VIEW_MODE_KEY = 'smartapp_dh_view_v1';   // 'grid' | 'list'
@@ -93,9 +94,16 @@ function renderGrid() {
     </div>
 
     ${total === 0
-      ? `<div class="placeholder">
-           <div class="placeholder__icon">·</div>
-           No files yet. Snap a receipt or pick a file.
+      ? `<div class="empty-card">
+           <div class="empty-card__icon">⊕</div>
+           <div class="empty-card__title">Empty Hub</div>
+           <div class="empty-card__desc">
+             Snap a receipt, save a PDF, or drop in any file.
+           </div>
+           <div class="empty-card__chips">
+             <button class="empty-card__chip" id="empty-cam">📷 Snap something</button>
+             <button class="empty-card__chip" id="empty-pick">📁 Pick a file</button>
+           </div>
          </div>`
       : `<div class="${_viewMode === 'list' ? 'dh-list' : 'dh-grid'}" id="grid"></div>`}
   `;
@@ -122,6 +130,11 @@ function renderGrid() {
     } else {
       _cache.forEach(file => grid.appendChild(buildGridCell(file)));
     }
+  } else {
+    const ec = _root.querySelector('#empty-cam');
+    const ep = _root.querySelector('#empty-pick');
+    if (ec) ec.onclick = () => _root.querySelector('#dh-camera').click();
+    if (ep) ep.onclick = () => _root.querySelector('#dh-pick').click();
   }
 }
 
@@ -244,6 +257,7 @@ async function onFileChosen(e) {
       updatedAt: baseTime + i,
     };
     await db.put(STORE, record);
+    recordActivity('documents', record.name);
   }
 
   await refreshCache();

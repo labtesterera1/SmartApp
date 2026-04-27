@@ -12,6 +12,7 @@
 
 import { db } from '../core/storage.js';
 import { toast } from '../core/ui.js';
+import { recordActivity } from '../core/profile.js';
 
 const STORE = 'signupkit';
 
@@ -71,15 +72,26 @@ function renderList() {
     <button class="btn btn--primary su-add" id="add">+ ADD ACCOUNT</button>
     <div class="su-list">
       ${total === 0
-        ? `<div class="placeholder">
-             <div class="placeholder__icon">·</div>
-             No accounts yet. Tap + ADD ACCOUNT.
+        ? `<div class="empty-card">
+             <div class="empty-card__icon">⊕</div>
+             <div class="empty-card__title">No accounts logged</div>
+             <div class="empty-card__desc">
+               Add the first account you'd hate to lose track of.
+             </div>
+             <div class="empty-card__chips">
+               <button class="empty-card__chip" id="empty-add">+ Add account</button>
+             </div>
            </div>`
         : _cache.map(rowHtml).join('')}
     </div>
   `;
 
   _root.querySelector('#add').onclick = () => {
+    _editing = { id: null };
+    renderEditor(_editing);
+  };
+  const emptyAdd = _root.querySelector('#empty-add');
+  if (emptyAdd) emptyAdd.onclick = () => {
     _editing = { id: null };
     renderEditor(_editing);
   };
@@ -275,6 +287,8 @@ async function saveEntry(entry, isNew) {
   }
   await db.put(STORE, next);
   await refreshCache();
+  const label = next.username || [next.firstName, next.lastName].filter(Boolean).join(' ') || next.accountName || 'account';
+  recordActivity('signupkit', label);
   toast(isNew ? '✓ Account added' : '✓ Saved');
   backToList();
 }
