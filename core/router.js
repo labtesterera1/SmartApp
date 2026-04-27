@@ -10,8 +10,8 @@ import documents  from '../modules/documents.js';
 import sweep      from '../modules/sweep.js';
 import vault      from '../modules/vault.js';
 import { VERSION, BUILD } from './version.js';
-import { initPersistence } from './persistence.js';
-import { getProfilePic, saveProfilePicFromFile } from './profile.js';
+import { initPersistence, refreshUsage } from './persistence.js';
+import { getProfilePic, clearProfilePic, saveProfilePicFromFile } from './profile.js';
 import { toast } from './ui.js';
 
 // ↓↓↓ THE REGISTRY — edit this to add/remove icons ↓↓↓
@@ -25,46 +25,40 @@ export function startApp() {
   injectVersion();
   paintAvatar();
   bindAvatarUpload();
-  bindInstallPrompt();
+  trackInstallPrompt();
+  bindSettingsButton();
   initPersistence();   // fire-and-forget — registers SW + asks for persistent storage
   showLauncher();
 }
 
-/* ---------- PWA install prompt ---------- */
+/* ---------- PWA install state (event captured for settings screen) ---------- */
 let _deferredInstall = null;
-function bindInstallPrompt() {
-  const btn = document.getElementById('install-prompt');
-  if (!btn) return;
+let _isInstalled = false;
 
-  // Hide if already running as installed PWA
+function trackInstallPrompt() {
+  // Detect already-installed standalone mode
   if (window.matchMedia('(display-mode: standalone)').matches ||
       window.navigator.standalone === true) {
-    btn.hidden = true;
-    return;
+    _isInstalled = true;
   }
 
   window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
     _deferredInstall = e;
-    btn.hidden = false;
-  });
-
-  btn.addEventListener('click', async () => {
-    if (!_deferredInstall) {
-      toast('Install: Chrome menu → "Install app" / "Add to home screen"', 'warn');
-      return;
-    }
-    _deferredInstall.prompt();
-    const choice = await _deferredInstall.userChoice;
-    if (choice.outcome === 'accepted') toast('✓ Installing…');
-    _deferredInstall = null;
-    btn.hidden = true;
   });
 
   window.addEventListener('appinstalled', () => {
-    btn.hidden = true;
+    _isInstalled = true;
+    _deferredInstall = null;
     toast('✓ App installed');
+    // Refresh settings if open
+    if (document.querySelector('#settings-screen')) renderSettings();
   });
+}
+
+function bindSettingsButton() {
+  const gear = document.getElementById('open-settings');
+  if (gear) gear.addEventListener('click', renderSettings);
 }
 
 function injectVersion() {
@@ -107,6 +101,132 @@ function bindAvatarUpload() {
       toast('Could not save picture: ' + err.message, 'err');
     }
   });
+}
+
+/* ---------- Settings screen ---------- */
+async function renderSettings() {
+  cleanupActiveModule();
+  setTopbarTitle('SETTINGS');
+
+  const view = document.getElementById('view');
+  view.innerHTML = `
+    <div class="screen" id="settings-screen">
+      <button class="screen__back" id="back">← HOME</button>
+      <div class="screen__title">Settings</div>
+      <div class="screen__subtitle">app · install · storage</div>
+
+      <div class="set-card">
+        <div class="set-card__head">APP</div>
+        <div class="set-row">
+          <span class="set-row__k">VERSION</span>
+          <span class="set-row__v">v${VERSION} · ${BUILD}</span>
+        </div>
+        <div class="set-row">
+          <span class="set-row__k">AUTHOR</span>
+          <span class="set-row__v"><em style="font-family:var(--serif);color:var(--lime);">by Nik</em></span>
+        </div>
+      </div>
+
+      <div class="set-card">
+        <div class="set-card__head">INSTALL</div>
+        <div id="install-status"></div>
+      </div>
+
+      <div class="set-card">
+        <div class="set-card__head">STORAGE</div>
+        <div id="storage-status"></div>
+      </div>
+
+      <div class="set-card">
+        <div class="set-card__head">PROFILE</div>
+        <div class="set-row">
+          <span class="set-row__k">PICTURE</span>
+          <span class="set-row__v">
+            <button class="vault-tool-btn" id="set-pic">CHANGE</button>
+            <button class="vault-tool-btn" id="clear-pic">CLEAR</button>
+          </span>
+        </div>
+      </div>
+    </div>
+  `;
+
+  view.querySelector('#back').addEventListener('click', showLauncher);
+
+  // Install card
+  const installEl = view.querySelector('#install-status');
+  if (_isInstalled) {
+    installEl.innerHTML = `
+      <div class="set-row">
+        <span class="set-row__k">STATUS</span>
+        <span class="set-row__v" style="color:var(--lime);">✓ App Installed</span>
+      </div>
+      <div class="set-row__note">Running in standalone mode. Data is protected from routine cache clearing.</div>
+    `;
+  } else if (_deferredInstall) {
+    installEl.innerHTML = `
+      <div class="set-row">
+        <span class="set-row__k">STATUS</span>
+        <span class="set-row__v" style="color:var(--warn);">Not installed</span>
+      </div>
+      <button class="btn btn--primary set-install" id="install-now">📱 INSTALL APP</button>
+      <div class="set-row__note">Adds SmartApp to your home screen as a standalone app.</div>
+    `;
+    installEl.querySelector('#install-now').onclick = async () => {
+      _deferredInstall.prompt();
+      const choice = await _deferredInstall.userChoice;
+      if (choice.outcome === 'accepted') toast('✓ Installing…');
+      _deferredInstall = null;
+      renderSettings();
+    };
+  } else {
+    installEl.innerHTML = `
+      <div class="set-row">
+        <span class="set-row__k">STATUS</span>
+        <span class="set-row__v" style="color:var(--ink-dim);">Not installed</span>
+      </div>
+      <div class="set-row__note">
+        Browser hasn't offered install yet. Use the browser menu →
+        <strong>Install app</strong> or <strong>Add to Home screen</strong>.
+        Engagement (visiting a few times) often unlocks the prompt.
+      </div>
+    `;
+  }
+
+  // Storage card
+  const storageEl = view.querySelector('#storage-status');
+  const status = await refreshUsage();
+  const persistedLabel = status.persisted === true
+    ? `<span style="color:var(--lime);">✓ Persistent</span>`
+    : status.persisted === false
+      ? `<span style="color:var(--warn);">Temporary</span>`
+      : `<span style="color:var(--ink-dim);">Unknown</span>`;
+  const usedMB  = (status.usage / (1024 * 1024)).toFixed(1);
+  const quotaMB = (status.quota / (1024 * 1024)).toFixed(0);
+  storageEl.innerHTML = `
+    <div class="set-row">
+      <span class="set-row__k">MODE</span>
+      <span class="set-row__v">${persistedLabel}</span>
+    </div>
+    <div class="set-row">
+      <span class="set-row__k">USED</span>
+      <span class="set-row__v">${usedMB} MB / ${quotaMB} MB</span>
+    </div>
+    <div class="set-row__note">
+      ${status.persisted === true
+        ? 'Browser cache clearing will not wipe your data. "Clear all site data" still will — keep export backups.'
+        : 'Storage may be evicted under pressure. Use Export Backup in Vault and Document Hub for safety.'}
+    </div>
+  `;
+
+  // Profile pic actions
+  view.querySelector('#set-pic').onclick = () =>
+    document.getElementById('avatar-input').click();
+  view.querySelector('#clear-pic').onclick = () => {
+    if (!confirm('Remove profile picture?')) return;
+    clearProfilePic();
+    paintAvatar();
+    toast('✓ Picture cleared');
+  };
 }
 
 /* ---------- Launcher ---------- */

@@ -5,5 +5,5 @@
    Bump this on each meaningful release.
    ============================================================ */
 
-export const VERSION = '0.6';
-export const BUILD   = 'install-fix';
+export const VERSION = '0.7';
+export const BUILD   = 'signup-kit';
