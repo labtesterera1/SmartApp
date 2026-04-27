@@ -5,5 +5,5 @@
    Bump this on each meaningful release.
    ============================================================ */
 
-export const VERSION = '0.8';
-export const BUILD   = 'sweep-module';
+export const VERSION = '0.9';
+export const BUILD   = 'polish-pass';

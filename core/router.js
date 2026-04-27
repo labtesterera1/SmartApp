@@ -11,7 +11,11 @@ import sweep      from '../modules/sweep.js';
 import vault      from '../modules/vault.js';
 import { VERSION, BUILD } from './version.js';
 import { initPersistence, refreshUsage } from './persistence.js';
-import { getProfilePic, clearProfilePic, saveProfilePicFromFile } from './profile.js';
+import {
+  getProfilePic, clearProfilePic, saveProfilePicFromFile,
+  getDisplayName, setDisplayName,
+  getRecent, clearRecent,
+} from './profile.js';
 import { toast } from './ui.js';
 
 // ↓↓↓ THE REGISTRY — edit this to add/remove icons ↓↓↓
@@ -27,31 +31,27 @@ export function startApp() {
   bindAvatarUpload();
   trackInstallPrompt();
   bindSettingsButton();
-  initPersistence();   // fire-and-forget — registers SW + asks for persistent storage
+  initPersistence();
   showLauncher();
 }
 
-/* ---------- PWA install state (event captured for settings screen) ---------- */
+/* ---------- PWA install state ---------- */
 let _deferredInstall = null;
 let _isInstalled = false;
 
 function trackInstallPrompt() {
-  // Detect already-installed standalone mode
   if (window.matchMedia('(display-mode: standalone)').matches ||
       window.navigator.standalone === true) {
     _isInstalled = true;
   }
-
   window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
     _deferredInstall = e;
   });
-
   window.addEventListener('appinstalled', () => {
     _isInstalled = true;
     _deferredInstall = null;
     toast('✓ App installed');
-    // Refresh settings if open
     if (document.querySelector('#settings-screen')) renderSettings();
   });
 }
@@ -81,7 +81,10 @@ function paintAvatar() {
   } else {
     btn.style.backgroundImage = '';
     btn.classList.remove('avatar--has-pic');
-    if (initial) initial.style.display = '';
+    if (initial) {
+      initial.style.display = '';
+      initial.textContent = (getDisplayName()[0] || 'N').toUpperCase();
+    }
   }
 }
 function bindAvatarUpload() {
@@ -113,7 +116,33 @@ async function renderSettings() {
     <div class="screen" id="settings-screen">
       <button class="screen__back" id="back">← HOME</button>
       <div class="screen__title">Settings</div>
-      <div class="screen__subtitle">app · install · storage</div>
+      <div class="screen__subtitle">app · profile · install · storage</div>
+
+      <div class="set-card">
+        <div class="set-card__head">PROFILE</div>
+        <div class="set-row">
+          <span class="set-row__k">NAME</span>
+          <span class="set-row__v">
+            <input type="text" id="display-name" class="set-input"
+                   value="${escape(getDisplayName())}" maxlength="24"
+                   placeholder="Your name">
+            <button class="vault-tool-btn" id="save-name">SAVE</button>
+          </span>
+        </div>
+        <div class="set-row">
+          <span class="set-row__k">PICTURE</span>
+          <span class="set-row__v">
+            <button class="vault-tool-btn" id="set-pic">CHANGE</button>
+            <button class="vault-tool-btn" id="clear-pic">CLEAR</button>
+          </span>
+        </div>
+        <div class="set-row">
+          <span class="set-row__k">RECENT</span>
+          <span class="set-row__v">
+            <button class="vault-tool-btn" id="clear-recent">CLEAR ACTIVITY</button>
+          </span>
+        </div>
+      </div>
 
       <div class="set-card">
         <div class="set-card__head">APP</div>
@@ -136,21 +165,21 @@ async function renderSettings() {
         <div class="set-card__head">STORAGE</div>
         <div id="storage-status"></div>
       </div>
-
-      <div class="set-card">
-        <div class="set-card__head">PROFILE</div>
-        <div class="set-row">
-          <span class="set-row__k">PICTURE</span>
-          <span class="set-row__v">
-            <button class="vault-tool-btn" id="set-pic">CHANGE</button>
-            <button class="vault-tool-btn" id="clear-pic">CLEAR</button>
-          </span>
-        </div>
-      </div>
     </div>
   `;
 
   view.querySelector('#back').addEventListener('click', showLauncher);
+
+  // Display name save
+  view.querySelector('#save-name').onclick = () => {
+    const name = view.querySelector('#display-name').value;
+    setDisplayName(name);
+    paintAvatar();
+    toast('✓ Name saved');
+  };
+  view.querySelector('#display-name').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') view.querySelector('#save-name').click();
+  });
 
   // Install card
   const installEl = view.querySelector('#install-status');
@@ -200,10 +229,7 @@ async function renderSettings() {
       </div>
     `;
     installEl.querySelector('#check-install').onclick = () => {
-      // Re-detect standalone mode in case the user installed via Chrome menu
-      if (window.matchMedia('(display-mode: standalone)').matches) {
-        _isInstalled = true;
-      }
+      if (window.matchMedia('(display-mode: standalone)').matches) _isInstalled = true;
       renderSettings();
       toast(_isInstalled ? '✓ Installed' : 'Still not installed', _isInstalled ? 'ok' : 'warn');
     };
@@ -235,7 +261,7 @@ async function renderSettings() {
     </div>
   `;
 
-  // Profile pic actions
+  // Profile actions
   view.querySelector('#set-pic').onclick = () =>
     document.getElementById('avatar-input').click();
   view.querySelector('#clear-pic').onclick = () => {
@@ -244,6 +270,11 @@ async function renderSettings() {
     paintAvatar();
     toast('✓ Picture cleared');
   };
+  view.querySelector('#clear-recent').onclick = () => {
+    if (!confirm('Clear recent activity list?')) return;
+    clearRecent();
+    toast('✓ Activity cleared');
+  };
 }
 
 /* ---------- Launcher ---------- */
@@ -251,24 +282,81 @@ function showLauncher() {
   cleanupActiveModule();
   setTopbarTitle('HOME');
 
+  const name = getDisplayName();
+  const greeting = greetingFor(new Date());
+
   const view = document.getElementById('view');
   view.innerHTML = `
     <div class="launcher">
       <div class="launcher__hello">
-        <h1>Hello,<br><em>let's work.</em></h1>
-        <p>${MODULES.length} module${MODULES.length === 1 ? '' : 's'} · tap to open</p>
+        <h1>${escape(greeting)}<br><em>${escape(name)}.</em></h1>
+        <p class="launcher__date">${escape(formatDateLong(new Date()))}</p>
       </div>
 
-      <div class="launcher__sectionlabel">Modules</div>
+      <div id="launcher-recent"></div>
 
+      <div class="launcher__sectionlabel">Modules</div>
       <div class="tilegrid" id="tilegrid"></div>
     </div>
   `;
 
+  paintRecent(view.querySelector('#launcher-recent'));
+
   const grid = view.querySelector('#tilegrid');
-  MODULES.forEach((mod, i) => {
-    grid.appendChild(buildTile(mod, i));
+  MODULES.forEach((mod, i) => grid.appendChild(buildTile(mod, i)));
+}
+
+function paintRecent(container) {
+  const items = getRecent();
+  if (items.length === 0) {
+    container.innerHTML = '';
+    return;
+  }
+  container.innerHTML = `
+    <div class="launcher__sectionlabel">Recent</div>
+    <div class="recent-strip" id="recent-strip"></div>
+  `;
+  const strip = container.querySelector('#recent-strip');
+  items.forEach((it) => {
+    const mod = MODULES.find((m) => m.id === it.moduleId);
+    if (!mod) return;
+    const chip = document.createElement('button');
+    chip.className = 'recent-chip';
+    chip.innerHTML = `
+      <span class="recent-chip__mod">${escape(mod.name)}</span>
+      <span class="recent-chip__lbl">${escape(it.label || '—')}</span>
+      <span class="recent-chip__ts">${relativeTime(it.ts)}</span>
+    `;
+    chip.onclick = () => openModule(mod);
+    strip.appendChild(chip);
   });
+}
+
+function greetingFor(date) {
+  const h = date.getHours();
+  if (h < 5)  return 'Good night,';
+  if (h < 12) return 'Good morning,';
+  if (h < 17) return 'Good afternoon,';
+  if (h < 21) return 'Good evening,';
+  return 'Good night,';
+}
+
+function formatDateLong(date) {
+  const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  return `${days[date.getDay()]} · ${date.getDate()} ${months[date.getMonth()]}`;
+}
+
+function relativeTime(ts) {
+  const diff = Date.now() - ts;
+  const m = Math.floor(diff / 60000);
+  if (m < 1)   return 'just now';
+  if (m < 60)  return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24)  return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 7)   return `${d}d ago`;
+  return new Date(ts).toLocaleDateString(undefined, { day: '2-digit', month: 'short' });
 }
 
 function buildTile(mod, index) {

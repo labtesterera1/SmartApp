@@ -1,26 +1,38 @@
 /* ============================================================
    core/profile.js
-   Lightweight profile-pic store.
-   - Image kept as compressed JPEG data URL in localStorage
-   - Resized to 96×96 max before saving (small + fast to render)
-   - No name / email / anything else — just the avatar
+   Lightweight profile + recent activity store.
+   - Profile pic: compressed JPEG data URL (96×96), localStorage
+   - Display name: short string, localStorage
+   - Recent activity: ring buffer of {moduleId, label, ts}, localStorage
    ============================================================ */
 
-const KEY = 'smartapp_profile_pic_v1';
+const PIC_KEY    = 'smartapp_profile_pic_v1';
+const NAME_KEY   = 'smartapp_profile_name_v1';
+const RECENT_KEY = 'smartapp_recent_v1';
+const RECENT_MAX = 6;
 
-export function getProfilePic() {
+/* ---------- Display name ---------- */
+export function getDisplayName() {
+  try { return localStorage.getItem(NAME_KEY) || 'Nik'; }
+  catch { return 'Nik'; }
+}
+export function setDisplayName(name) {
   try {
-    return localStorage.getItem(KEY) || null;
-  } catch {
-    return null;
-  }
+    const trimmed = String(name || '').trim().slice(0, 24);
+    if (!trimmed) localStorage.removeItem(NAME_KEY);
+    else          localStorage.setItem(NAME_KEY, trimmed);
+  } catch {}
 }
 
+/* ---------- Profile picture ---------- */
+export function getProfilePic() {
+  try { return localStorage.getItem(PIC_KEY) || null; }
+  catch { return null; }
+}
 export function clearProfilePic() {
-  try { localStorage.removeItem(KEY); } catch {}
+  try { localStorage.removeItem(PIC_KEY); } catch {}
 }
 
-/** Accepts a File (from <input type=file>), saves a 96x96 JPEG. */
 export function saveProfilePicFromFile(file) {
   return new Promise((resolve, reject) => {
     if (!file || !file.type || !file.type.startsWith('image/')) {
@@ -34,8 +46,6 @@ export function saveProfilePicFromFile(file) {
         const canvas = document.createElement('canvas');
         canvas.width = canvas.height = SIZE;
         const ctx = canvas.getContext('2d');
-
-        // Cover-fit (square crop)
         const ratio = Math.max(SIZE / img.width, SIZE / img.height);
         const w = img.width * ratio;
         const h = img.height * ratio;
@@ -44,24 +54,47 @@ export function saveProfilePicFromFile(file) {
         ctx.fillStyle = '#0c0b09';
         ctx.fillRect(0, 0, SIZE, SIZE);
         ctx.drawImage(img, x, y, w, h);
-
         const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
         URL.revokeObjectURL(url);
         try {
-          localStorage.setItem(KEY, dataUrl);
+          localStorage.setItem(PIC_KEY, dataUrl);
           resolve(dataUrl);
-        } catch (err) {
-          reject(err);
-        }
+        } catch (err) { reject(err); }
       } catch (err) {
         URL.revokeObjectURL(url);
         reject(err);
       }
     };
-    img.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error('Could not read image'));
-    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not read image')); };
     img.src = url;
   });
+}
+
+/* ---------- Recent activity ----------
+   Modules call recordActivity('vault', 'Gmail backup') after a save.
+   Home shows the latest few as chips. */
+export function getRecent() {
+  try {
+    const raw = localStorage.getItem(RECENT_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr : [];
+  } catch { return []; }
+}
+export function recordActivity(moduleId, label) {
+  if (!moduleId) return;
+  try {
+    const list = getRecent().filter(
+      (r) => !(r.moduleId === moduleId && r.label === label)
+    );
+    list.unshift({
+      moduleId,
+      label: String(label || '').slice(0, 40),
+      ts: Date.now(),
+    });
+    localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, RECENT_MAX)));
+  } catch {}
+}
+export function clearRecent() {
+  try { localStorage.removeItem(RECENT_KEY); } catch {}
 }
