@@ -25,8 +25,46 @@ export function startApp() {
   injectVersion();
   paintAvatar();
   bindAvatarUpload();
+  bindInstallPrompt();
   initPersistence();   // fire-and-forget — registers SW + asks for persistent storage
   showLauncher();
+}
+
+/* ---------- PWA install prompt ---------- */
+let _deferredInstall = null;
+function bindInstallPrompt() {
+  const btn = document.getElementById('install-prompt');
+  if (!btn) return;
+
+  // Hide if already running as installed PWA
+  if (window.matchMedia('(display-mode: standalone)').matches ||
+      window.navigator.standalone === true) {
+    btn.hidden = true;
+    return;
+  }
+
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    _deferredInstall = e;
+    btn.hidden = false;
+  });
+
+  btn.addEventListener('click', async () => {
+    if (!_deferredInstall) {
+      toast('Install: Chrome menu → "Install app" / "Add to home screen"', 'warn');
+      return;
+    }
+    _deferredInstall.prompt();
+    const choice = await _deferredInstall.userChoice;
+    if (choice.outcome === 'accepted') toast('✓ Installing…');
+    _deferredInstall = null;
+    btn.hidden = true;
+  });
+
+  window.addEventListener('appinstalled', () => {
+    btn.hidden = true;
+    toast('✓ App installed');
+  });
 }
 
 function injectVersion() {

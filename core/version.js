@@ -6,4 +6,4 @@
    ============================================================ */
 
 export const VERSION = '0.6';
-export const BUILD   = 'persistence-and-polish';
+export const BUILD   = 'install-fix';
