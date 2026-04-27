@@ -6,4 +6,4 @@
    ============================================================ */
 
 export const VERSION = '0.7';
-export const BUILD   = 'signup-kit';
+export const BUILD   = 'signup-fixes';

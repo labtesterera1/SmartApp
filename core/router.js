@@ -184,12 +184,29 @@ async function renderSettings() {
         <span class="set-row__k">STATUS</span>
         <span class="set-row__v" style="color:var(--ink-dim);">Not installed</span>
       </div>
-      <div class="set-row__note">
-        Browser hasn't offered install yet. Use the browser menu →
-        <strong>Install app</strong> or <strong>Add to Home screen</strong>.
-        Engagement (visiting a few times) often unlocks the prompt.
+      <div class="set-instr">
+        <div class="set-instr__head">INSTALL MANUALLY</div>
+        <ol class="set-instr__steps">
+          <li>Tap the <strong>⋮</strong> menu (top right of Chrome).</li>
+          <li>Look for <strong>"Install app"</strong> — tap it.</li>
+          <li>Or if not shown: <strong>"Add to Home screen"</strong>.</li>
+          <li>Confirm in the popup.</li>
+        </ol>
+        <div class="set-instr__note">
+          Auto-prompt requires Chrome's engagement signal — visit a few times
+          across separate sessions and it will appear here as a button.
+        </div>
+        <button class="vault-tool-btn set-instr__check" id="check-install">↻ CHECK AGAIN</button>
       </div>
     `;
+    installEl.querySelector('#check-install').onclick = () => {
+      // Re-detect standalone mode in case the user installed via Chrome menu
+      if (window.matchMedia('(display-mode: standalone)').matches) {
+        _isInstalled = true;
+      }
+      renderSettings();
+      toast(_isInstalled ? '✓ Installed' : 'Still not installed', _isInstalled ? 'ok' : 'warn');
+    };
   }
 
   // Storage card
