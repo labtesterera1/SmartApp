@@ -994,3 +994,172 @@ a { color: var(--lime); text-decoration: none; }
   letter-spacing: 0.04em;
   line-height: 1.55;
 }
+
+/* ============================================================
+   VAULT v0.5 — expansion (entry kinds, rich notes, copy buttons)
+   ============================================================ */
+
+/* Four stacked ADD buttons */
+.vault-addgroup {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.vault-addgroup .vault-add { width: 100%; margin: 0; padding: 12px 8px; font-size: 11px; }
+@media (min-width: 520px) {
+  .vault-addgroup { grid-template-columns: repeat(4, 1fr); }
+}
+
+/* Kind chips */
+.vault-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  border: 1px solid;
+  flex-shrink: 0;
+}
+.vault-chip--personal { color: var(--lime);   border-color: var(--lime-dim); background: rgba(212,255,58,0.06); }
+.vault-chip--ledger   { color: #7fc8ff;       border-color: #2c5070;        background: rgba(127,200,255,0.06); }
+.vault-chip--project  { color: var(--warn);   border-color: var(--warn);    background: rgba(255,122,58,0.06); }
+.vault-chip--basic    { color: var(--ink-dim); border-color: var(--line);   background: var(--bg-soft); }
+
+/* Row: chip on left */
+.vault-row { gap: 12px; }
+.vault-row .vault-chip { align-self: flex-start; margin-top: 2px; }
+
+/* Editor head */
+.vault-editor-head { margin-bottom: 16px; }
+
+/* Select dropdown matches input */
+.vault-select {
+  width: 100%;
+  padding: 11px 12px;
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 13px;
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--ink-dim) 50%),
+                    linear-gradient(135deg, var(--ink-dim) 50%, transparent 50%);
+  background-position: calc(100% - 18px) 50%, calc(100% - 13px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 32px;
+}
+.vault-select:focus { border-color: var(--lime); }
+.vault-select option { background: var(--bg-soft); color: var(--ink); }
+
+/* Field rows: add a 3rd column option for copy button */
+.vault-pwrow { grid-template-columns: 1fr auto; }
+.vault-pwrow:has(.vault-pwrow__btn:nth-of-type(1)):has(.vault-pwrow__btn:nth-of-type(2)) { grid-template-columns: 1fr auto auto; }
+.vault-pwrow:has(.vault-pwrow__btn:nth-of-type(3)) { grid-template-columns: 1fr auto auto auto; }
+
+.vault-pwrow__btn--copy { color: var(--ink-dim); }
+.vault-pwrow__btn--copy:hover { color: var(--lime); }
+
+/* Textarea (used by rich notes) */
+.vault-textarea {
+  width: 100%;
+  min-height: 80px;
+  padding: 11px 12px;
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 13px;
+  outline: none;
+  resize: vertical;
+  line-height: 1.55;
+  overflow: hidden;
+}
+.vault-textarea:focus { border-color: var(--lime); }
+
+/* Rich notes toolbar */
+.vault-field--rich .vault-field__label { margin-bottom: 4px; }
+.rich-toolbar {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 6px;
+  padding: 4px;
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  border-radius: var(--radius) var(--radius) 0 0;
+  border-bottom: 0;
+  align-items: center;
+}
+.rich-btn {
+  width: 32px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  color: var(--ink-dim);
+  font-family: var(--mono);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.rich-btn:hover  { color: var(--lime); border-color: var(--lime-dim); background: rgba(212,255,58,0.05); }
+.rich-btn:active { transform: scale(0.95); }
+.rich-spacer     { flex: 1; }
+.rich-btn--copy  { font-size: 14px; }
+.rich-area {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+/* Live preview of formatted notes */
+.rich-preview {
+  margin-top: 10px;
+  padding: 12px 14px;
+  border: 1px dashed var(--line-soft);
+  border-radius: var(--radius);
+  background: rgba(212, 255, 58, 0.015);
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--ink-dim);
+  overflow-wrap: anywhere;
+}
+.rich-preview strong  { color: var(--ink); font-weight: 700; }
+.rich-preview .rich-h {
+  display: block;
+  font-family: var(--serif);
+  font-size: 22px;
+  font-weight: 400;
+  color: var(--ink);
+  margin: 6px 0 4px;
+  line-height: 1.2;
+}
+.rich-preview .rich-c--lime   { color: var(--lime); }
+.rich-preview .rich-c--orange { color: var(--warn); }
+.rich-preview .rich-c--red    { color: #ff5c5c; }
+
+/* History row gains a copy button */
+.vault-history__row {
+  grid-template-columns: 1fr auto auto auto;
+}
+.vault-history__copy {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--ink-dim);
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.vault-history__copy:hover { color: var(--lime); border-color: var(--lime-dim); }
