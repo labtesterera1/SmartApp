@@ -5,5 +5,5 @@
    Bump this on each meaningful release.
    ============================================================ */
 
-export const VERSION = '0.4';
-export const BUILD   = 'step-2b';
+export const VERSION = '0.5';
+export const BUILD   = 'vault-expand';
