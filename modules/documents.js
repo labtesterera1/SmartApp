@@ -13,11 +13,16 @@ import { db } from '../core/storage.js';
 import { toast } from '../core/ui.js';
 
 const STORE = 'documents';
+const VIEW_MODE_KEY = 'smartapp_dh_view_v1';   // 'grid' | 'list'
 
 let _root = null;
 let _cache = [];          // in-memory list (synced from DB on render)
 let _viewing = null;      // null | id of file being viewed
 let _objectUrls = [];     // tracked so we can revoke on cleanup
+let _viewMode = (() => {
+  try { return localStorage.getItem(VIEW_MODE_KEY) || 'grid'; }
+  catch { return 'grid'; }
+})();
 
 export default {
   id: 'documents',
@@ -63,6 +68,10 @@ function renderGrid() {
     <div class="dh-bar">
       <span class="dh-bar__count">${total} FILE${total === 1 ? '' : 'S'}</span>
       <span class="dh-bar__size">${formatSize(totalSize)}</span>
+      <span class="dh-viewtoggle">
+        <button class="dh-vt ${_viewMode === 'grid' ? 'is-active' : ''}" data-mode="grid"  title="Grid view">▦</button>
+        <button class="dh-vt ${_viewMode === 'list' ? 'is-active' : ''}" data-mode="list"  title="List view">≣</button>
+      </span>
     </div>
 
     <div class="dh-actions">
@@ -77,21 +86,81 @@ function renderGrid() {
       </label>
     </div>
 
+    <div class="dh-tools">
+      <button class="vault-tool-btn" id="dh-export">⬇ EXPORT BACKUP</button>
+      <button class="vault-tool-btn" id="dh-import">⬆ IMPORT BACKUP</button>
+      <input type="file" id="dh-importfile" accept=".smartdocs,application/json" hidden>
+    </div>
+
     ${total === 0
       ? `<div class="placeholder">
            <div class="placeholder__icon">·</div>
            No files yet. Snap a receipt or pick a file.
          </div>`
-      : `<div class="dh-grid" id="grid"></div>`}
+      : `<div class="${_viewMode === 'list' ? 'dh-list' : 'dh-grid'}" id="grid"></div>`}
   `;
 
   _root.querySelector('#dh-camera').addEventListener('change', onFileChosen);
   _root.querySelector('#dh-pick').addEventListener('change', onFileChosen);
 
+  _root.querySelectorAll('.dh-vt').forEach(b => {
+    b.onclick = () => {
+      _viewMode = b.dataset.mode;
+      try { localStorage.setItem(VIEW_MODE_KEY, _viewMode); } catch {}
+      renderGrid();
+    };
+  });
+
+  _root.querySelector('#dh-export').onclick = exportDocuments;
+  _root.querySelector('#dh-import').onclick = () => _root.querySelector('#dh-importfile').click();
+  _root.querySelector('#dh-importfile').onchange = handleImportDocs;
+
   if (total > 0) {
     const grid = _root.querySelector('#grid');
-    _cache.forEach(file => grid.appendChild(buildGridCell(file)));
+    if (_viewMode === 'list') {
+      _cache.forEach(file => grid.appendChild(buildListRow(file)));
+    } else {
+      _cache.forEach(file => grid.appendChild(buildGridCell(file)));
+    }
   }
+}
+
+function buildListRow(file) {
+  const row = document.createElement('button');
+  row.className = 'dh-row';
+  row.dataset.id = file.id;
+
+  const isImg = (file.mime || '').startsWith('image/');
+  const isPdf = file.mime === 'application/pdf';
+
+  let thumb = '';
+  if (isImg) {
+    const url = URL.createObjectURL(file.blob);
+    _objectUrls.push(url);
+    thumb = `<img class="dh-row__thumb" src="${url}" alt="">`;
+  } else {
+    const ext = (file.ext || '').toUpperCase().slice(0, 4) || (isPdf ? 'PDF' : 'FILE');
+    const cls = isPdf ? 'dh-row__icon dh-row__icon--pdf' : 'dh-row__icon';
+    thumb = `<div class="${cls}"><span>${escapeHtml(ext)}</span></div>`;
+  }
+
+  row.innerHTML = `
+    ${thumb}
+    <div class="dh-row__main">
+      <div class="dh-row__name">${escapeHtml(file.name)}</div>
+      <div class="dh-row__sub">
+        ${formatSize(file.size)}
+        · ${(file.mime || 'unknown').split('/').pop()}
+        · ${formatDate(file.createdAt)}
+      </div>
+    </div>
+    <span class="dh-row__chev">→</span>
+  `;
+  row.addEventListener('click', () => {
+    _viewing = file.id;
+    renderDetail(file.id);
+  });
+  return row;
 }
 
 function buildGridCell(file) {
@@ -450,6 +519,127 @@ async function copyInfo(file) {
   } catch {
     toast('Copy failed — clipboard blocked', 'err');
   }
+}
+
+/* ============================================================
+   Export / Import — Layer 2 backup
+   - File contains JSON: manifest + base64-encoded blobs
+   - No external libs; portable across devices
+   - Import is ADDITIVE (new IDs, never overwrites)
+   ============================================================ */
+
+async function exportDocuments() {
+  if (_cache.length === 0) {
+    toast('Nothing to export yet', 'warn');
+    return;
+  }
+  toast('Building backup…');
+  try {
+    const items = [];
+    for (const f of _cache) {
+      items.push({
+        id: f.id,
+        name: f.name,
+        mime: f.mime,
+        ext: f.ext,
+        size: f.size,
+        originalSize: f.originalSize || f.size,
+        createdAt: f.createdAt,
+        updatedAt: f.updatedAt,
+        data: await blobToBase64(f.blob),
+      });
+    }
+    const payload = {
+      app: 'SmartApp',
+      kind: 'documents-backup',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      items,
+    };
+    const json = JSON.stringify(payload);
+    const out = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(out);
+    const date = new Date().toISOString().slice(0, 10);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `smartapp-documents-${date}.smartdocs`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+    toast(`✓ Exported ${items.length} file${items.length === 1 ? '' : 's'}`);
+  } catch (err) {
+    console.error(err);
+    toast('Export failed: ' + err.message, 'err');
+  }
+}
+
+async function handleImportDocs(e) {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+
+  let payload;
+  try {
+    const text = await file.text();
+    payload = JSON.parse(text);
+  } catch {
+    toast('Not a valid backup file', 'err');
+    return;
+  }
+  if (payload.kind !== 'documents-backup' || !Array.isArray(payload.items)) {
+    toast('Backup file is not a documents backup', 'err');
+    return;
+  }
+  const proceed = confirm(
+    `Import will ADD ${payload.items.length} file${payload.items.length === 1 ? '' : 's'} to your library.\n\n` +
+    'Existing files will not be touched. Continue?'
+  );
+  if (!proceed) return;
+
+  let added = 0, skipped = 0;
+  for (const it of payload.items) {
+    try {
+      const blob = await base64ToBlob(it.data, it.mime);
+      const record = {
+        id: uuid(),                    // assign fresh ID — pure additive import
+        name: it.name,
+        mime: it.mime,
+        ext: it.ext,
+        size: it.size,
+        originalSize: it.originalSize,
+        blob,
+        createdAt: it.createdAt || Date.now(),
+        updatedAt: Date.now(),
+      };
+      await db.put(STORE, record);
+      added++;
+    } catch {
+      skipped++;
+    }
+  }
+  await refreshCache();
+  routeView();
+  toast(`✓ Imported ${added}${skipped ? ` (${skipped} skipped)` : ''}`);
+}
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => {
+      const s = r.result || '';
+      const i = s.indexOf(',');
+      resolve(i >= 0 ? s.slice(i + 1) : s);
+    };
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(blob);
+  });
+}
+async function base64ToBlob(b64, mime) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: mime || 'application/octet-stream' });
 }
 
 /* ============================================================

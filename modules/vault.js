@@ -227,6 +227,12 @@ function renderList() {
       <button class="vault-bar__lock" id="lockNow">⚿ LOCK</button>
     </div>
 
+    <div class="vault-tools">
+      <button class="vault-tool-btn" id="exportBtn">⬇ EXPORT BACKUP</button>
+      <button class="vault-tool-btn" id="importBtn">⬆ IMPORT BACKUP</button>
+      <input type="file" id="importFile" accept=".smartvault,application/json" hidden>
+    </div>
+
     <div class="vault-addgroup">
       <button class="btn btn--primary vault-add" data-kind="personal">+ PERSONAL</button>
       <button class="btn btn--primary vault-add" data-kind="ledger">+ LEDGER</button>
@@ -251,6 +257,9 @@ function renderList() {
     };
   });
   _root.querySelector('#lockNow').onclick = () => { lock(); routeView(); };
+  _root.querySelector('#exportBtn').onclick = exportVault;
+  _root.querySelector('#importBtn').onclick = () => _root.querySelector('#importFile').click();
+  _root.querySelector('#importFile').onchange = handleImport;
   _root.querySelectorAll('.vault-row').forEach(r => {
     r.onclick = () => {
       const e = _entries.find(x => x.id === r.dataset.id);
@@ -642,6 +651,90 @@ async function deleteEntry(entry) {
 }
 
 function backToList() { _editing = null; renderList(); }
+
+/* ============================================================
+   Export / Import (Layer 2 backup)
+   - File is JSON containing the encrypted blob + salt
+   - Master password is still required to decrypt on import
+   - Same crypto as the live vault — just a portable copy
+   ============================================================ */
+
+async function exportVault() {
+  const stored = loadStored();
+  if (!stored || !stored.salt) {
+    toast('Nothing to export yet', 'warn');
+    return;
+  }
+  // Re-encrypt the current in-memory entries so the export reflects the
+  // latest state, even if the user hasn't edited anything since unlock.
+  const blob = await encryptBlob(_entries, _key);
+  const payload = {
+    app: 'SmartApp',
+    kind: 'vault-backup',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    salt: stored.salt,
+    iv: blob.iv,
+    ct: blob.ct,
+  };
+  const json = JSON.stringify(payload, null, 2);
+  const file = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(file);
+  const date = new Date().toISOString().slice(0, 10);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `smartapp-vault-${date}.smartvault`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  toast('✓ Backup exported');
+}
+
+async function handleImport(e) {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+
+  let payload;
+  try {
+    const text = await file.text();
+    payload = JSON.parse(text);
+  } catch {
+    toast('Not a valid backup file', 'err');
+    return;
+  }
+  if (!payload.salt || !payload.iv || !payload.ct) {
+    toast('Backup file is missing data', 'err');
+    return;
+  }
+
+  const proceed = confirm(
+    'Importing will REPLACE your current vault entries with the ones from the backup file.\n\n' +
+    'Make sure you remember the master password used when this backup was made.\n\n' +
+    'Continue?'
+  );
+  if (!proceed) return;
+
+  const pw = prompt('Master password used for this backup:');
+  if (!pw) return;
+
+  try {
+    const key = await deriveKey(pw, b64ToBytes(payload.salt));
+    const entries = await decryptBlob({ iv: payload.iv, ct: payload.ct }, key);
+    if (!Array.isArray(entries)) throw new Error('Decryption returned non-array');
+
+    // Replace local vault with imported one
+    saveStored({ salt: payload.salt, iv: payload.iv, ct: payload.ct });
+    _key = key;
+    _entries = entries;
+    bumpIdle();
+    renderList();
+    toast(`✓ Imported ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'}`);
+  } catch {
+    toast('Wrong password or corrupted backup', 'err');
+  }
+}
 
 /* ============================================================
    Helpers
