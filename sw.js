@@ -7,7 +7,7 @@
 
    To force users to pick up new code: bump CACHE_NAME below.
    ============================================================ */
-const CACHE_NAME = 'smartapp-shell-v0.6';
+const CACHE_NAME = 'smartapp-shell-v0.6.1';
 const SHELL = [
   './',
   './index.html',
@@ -23,6 +23,12 @@ const SHELL = [
   './modules/documents.js',
   './modules/sweep.js',
   './modules/vault.js',
+  './icons/icon-192.png',
+  './icons/icon-512.png',
+  './icons/icon-192-maskable.png',
+  './icons/icon-512-maskable.png',
+  './icons/apple-touch-icon.png',
+  './icons/favicon-32.png',
 ];
 
 self.addEventListener('install', (event) => {
