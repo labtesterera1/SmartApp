@@ -10,6 +10,9 @@ import documents  from '../modules/documents.js';
 import sweep      from '../modules/sweep.js';
 import vault      from '../modules/vault.js';
 import { VERSION, BUILD } from './version.js';
+import { initPersistence } from './persistence.js';
+import { getProfilePic, saveProfilePicFromFile } from './profile.js';
+import { toast } from './ui.js';
 
 // ↓↓↓ THE REGISTRY — edit this to add/remove icons ↓↓↓
 const MODULES = [ledger, documents, sweep, vault];
@@ -20,6 +23,9 @@ let activeModule = null;
 export function startApp() {
   startClock();
   injectVersion();
+  paintAvatar();
+  bindAvatarUpload();
+  initPersistence();   // fire-and-forget — registers SW + asks for persistent storage
   showLauncher();
 }
 
@@ -28,6 +34,41 @@ function injectVersion() {
   if (top) top.innerHTML = `SMARTAPP <span class="topbar__ver">v${VERSION}</span>`;
   const bot = document.querySelector('.ruler__label');
   if (bot) bot.textContent = `v${VERSION} · ${BUILD}`;
+}
+
+/* ---------- Avatar ---------- */
+function paintAvatar() {
+  const btn = document.getElementById('avatar');
+  const initial = document.getElementById('avatar-initial');
+  if (!btn) return;
+  const pic = getProfilePic();
+  if (pic) {
+    btn.style.backgroundImage = `url(${pic})`;
+    btn.classList.add('avatar--has-pic');
+    if (initial) initial.style.display = 'none';
+  } else {
+    btn.style.backgroundImage = '';
+    btn.classList.remove('avatar--has-pic');
+    if (initial) initial.style.display = '';
+  }
+}
+function bindAvatarUpload() {
+  const btn = document.getElementById('avatar');
+  const input = document.getElementById('avatar-input');
+  if (!btn || !input) return;
+  btn.addEventListener('click', () => input.click());
+  input.addEventListener('change', async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      await saveProfilePicFromFile(file);
+      paintAvatar();
+      toast('✓ Profile picture saved');
+    } catch (err) {
+      toast('Could not save picture: ' + err.message, 'err');
+    }
+  });
 }
 
 /* ---------- Launcher ---------- */
