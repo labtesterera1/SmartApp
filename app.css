@@ -1163,3 +1163,158 @@ a { color: var(--lime); text-decoration: none; }
   cursor: pointer;
 }
 .vault-history__copy:hover { color: var(--lime); border-color: var(--lime-dim); }
+
+/* ============================================================
+   v0.6 — avatar, by-Nik, view toggle, export/import buttons
+   ============================================================ */
+
+/* Avatar in topbar */
+.avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid var(--lime-dim);
+  background: var(--bg-soft);
+  background-size: cover;
+  background-position: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0;
+  transition: border-color 0.15s, transform 0.1s;
+}
+.avatar:hover  { border-color: var(--lime); }
+.avatar:active { transform: scale(0.95); }
+.avatar--has-pic { border-color: var(--lime); }
+.avatar__initial {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 16px;
+  font-weight: 400;
+  color: var(--lime);
+  line-height: 1;
+  pointer-events: none;
+}
+
+.topbar__left { gap: 10px; }
+
+/* by Nik label */
+.ruler { gap: 12px; }
+.ruler__by {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 13px;
+  color: var(--lime);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+/* Backup tools row (used by Vault + Documents) */
+.vault-tools,
+.dh-tools {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.vault-tool-btn {
+  padding: 10px 8px;
+  background: var(--bg-soft);
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  color: var(--ink-dim);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.vault-tool-btn:hover  { color: var(--lime); border-color: var(--lime-dim); }
+.vault-tool-btn:active { transform: scale(0.98); }
+
+/* Document Hub: view toggle pill */
+.dh-bar { gap: 12px; }
+.dh-viewtoggle {
+  margin-left: auto;
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.dh-vt {
+  padding: 4px 9px;
+  background: transparent;
+  border: 0;
+  color: var(--ink-dim);
+  font-family: var(--mono);
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.dh-vt:hover     { color: var(--lime); }
+.dh-vt.is-active {
+  background: var(--lime);
+  color: var(--bg);
+}
+
+/* Document Hub: list view rows */
+.dh-list { display: flex; flex-direction: column; gap: 8px; }
+.dh-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--bg-tile);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  text-align: left;
+  transition: border-color 0.15s, transform 0.1s;
+}
+.dh-row:hover  { border-color: var(--lime-dim); }
+.dh-row:active { transform: scale(0.99); }
+.dh-row__thumb {
+  width: 48px; height: 48px;
+  object-fit: cover;
+  border-radius: 4px;
+  background: var(--bg-soft);
+  flex-shrink: 0;
+}
+.dh-row__icon {
+  width: 48px; height: 48px;
+  background: var(--bg-soft);
+  border: 1px solid var(--line-soft);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--lime);
+  flex-shrink: 0;
+}
+.dh-row__icon--pdf { color: var(--warn); }
+.dh-row__main { flex: 1; min-width: 0; }
+.dh-row__name {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dh-row__sub {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-dim);
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dh-row__chev { color: var(--ink-dim); font-size: 14px; }

@@ -1,5 +1,5 @@
 {
-  "name": "SmartApp",
+  "name": "SmartApp by Nik",
   "short_name": "SmartApp",
   "start_url": "./",
   "scope": "./",
@@ -7,13 +7,20 @@
   "orientation": "portrait",
   "background_color": "#0c0b09",
   "theme_color": "#0c0b09",
-  "description": "Personal toolkit — Ledger, Document Hub, Sweep.",
+  "description": "Personal toolkit by Nik — Vault, Document Hub, more.",
+  "categories": ["productivity", "utilities"],
   "icons": [
     {
       "src": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxOTIgMTkyIj48cmVjdCB3aWR0aD0iMTkyIiBoZWlnaHQ9IjE5MiIgcng9IjMyIiBmaWxsPSIjMGMwYjA5Ii8+PHRleHQgeD0iOTYiIHk9IjEyMCIgZm9udC1mYW1pbHk9InNlcmlmIiBmb250LXNpemU9Ijk2IiBmaWxsPSIjZDRmZjNhIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LXN0eWxlPSJpdGFsaWMiPlM8L3RleHQ+PC9zdmc+",
       "sizes": "192x192",
       "type": "image/svg+xml",
-      "purpose": "any"
+      "purpose": "any maskable"
+    },
+    {
+      "src": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj48cmVjdCB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiIgcng9IjkwIiBmaWxsPSIjMGMwYjA5Ii8+PHRleHQgeD0iMjU2IiB5PSIzMjAiIGZvbnQtZmFtaWx5PSJzZXJpZiIgZm9udC1zaXplPSIyNTYiIGZpbGw9IiNkNGZmM2EiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtc3R5bGU9Iml0YWxpYyI+UzwvdGV4dD48L3N2Zz4=",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
     }
   ]
 }

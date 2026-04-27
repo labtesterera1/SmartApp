@@ -20,7 +20,9 @@
   <!-- Status bar: persistent across launcher + modules -->
   <header class="topbar" id="topbar">
     <div class="topbar__left">
-      <span class="dot"></span>
+      <button class="avatar" id="avatar" title="Set profile picture">
+        <span class="avatar__initial" id="avatar-initial">N</span>
+      </button>
       <span class="topbar__id" id="topbar-id">SMARTAPP</span>
     </div>
     <div class="topbar__center" id="topbar-title">HOME</div>
@@ -35,8 +37,12 @@
   <!-- Bottom ruler -->
   <footer class="ruler" aria-hidden="true">
     <div class="ruler__track"></div>
-    <div class="ruler__label">v0.1 · local</div>
+    <div class="ruler__label">v0.6 · local</div>
+    <div class="ruler__by">by Nik</div>
   </footer>
+
+  <!-- Hidden file input for avatar upload -->
+  <input type="file" id="avatar-input" accept="image/*" hidden>
 
   <!-- Boot the app -->
   <script type="module">
