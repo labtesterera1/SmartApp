@@ -1527,3 +1527,271 @@ a { color: var(--lime); text-decoration: none; }
   margin-bottom: 10px;
 }
 .set-instr__check { width: 100%; }
+
+/* ============================================================
+   v0.8 — SWEEP module
+   ============================================================ */
+
+.sw-warn {
+  margin-bottom: 14px;
+  padding: 8px 12px;
+  border: 1px solid var(--warn);
+  border-radius: var(--radius);
+  background: rgba(255, 122, 58, 0.06);
+  color: var(--warn);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-align: center;
+}
+
+/* Mode picker cards */
+.sw-mode {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 16px;
+  margin-bottom: 10px;
+  background: var(--bg-tile);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  text-align: left;
+  transition: border-color 0.15s, transform 0.1s;
+  cursor: pointer;
+}
+.sw-mode:hover  { border-color: var(--lime-dim); }
+.sw-mode:active { transform: scale(0.99); }
+.sw-mode__icon {
+  font-size: 28px;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.sw-mode__body { flex: 1; min-width: 0; }
+.sw-mode__title {
+  font-family: var(--serif);
+  font-size: 22px;
+  line-height: 1.1;
+  color: var(--ink);
+  margin-bottom: 4px;
+}
+.sw-mode__desc {
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1.55;
+  color: var(--ink-dim);
+  letter-spacing: 0.04em;
+}
+.sw-mode__chev { color: var(--ink-dim); font-size: 16px; flex-shrink: 0; }
+
+/* Tips screen */
+.sw-tips h3 {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 22px;
+  color: var(--lime);
+  margin: 16px 0 8px;
+  font-weight: 400;
+}
+.sw-tips h3:first-child { margin-top: 4px; }
+.sw-tips ul {
+  margin: 0 0 8px 18px;
+  padding: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--ink);
+}
+.sw-tips ul li::marker { color: var(--lime-dim); }
+.sw-tips p {
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--ink);
+  margin-bottom: 8px;
+}
+.sw-tips p em { color: var(--lime); font-style: italic; font-family: var(--serif); }
+
+/* Pre-flight panel */
+.sw-prep {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 18px;
+  background: var(--bg-tile);
+}
+.sw-prep__title {
+  font-family: var(--serif);
+  font-size: 28px;
+  line-height: 1;
+  color: var(--ink);
+  margin-bottom: 14px;
+}
+.sw-prep__steps {
+  margin: 0 0 16px 18px;
+  padding: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--ink);
+}
+.sw-prep__steps li { margin-bottom: 6px; }
+.sw-prep__steps li::marker { color: var(--lime); }
+.sw-prep__start { width: 100%; margin-bottom: 10px; }
+.sw-prep__note {
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--ink-dim);
+}
+
+/* Camera sweep view */
+.sw-cam {
+  position: relative;
+  width: 100%;
+  height: 70vh;
+  min-height: 400px;
+  background: #000;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.sw-cam__video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+.sw-cam__overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.sw-cam__hud {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  right: 10px;
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  pointer-events: none;
+}
+.sw-cam__badge {
+  padding: 4px 8px;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid var(--lime);
+  border-radius: 3px;
+  color: var(--lime);
+  font-weight: 700;
+}
+.sw-cam__count {
+  padding: 4px 8px;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--ink);
+}
+.sw-cam__controls {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 10px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+  gap: 6px;
+}
+.sw-cam__btn {
+  padding: 10px 12px;
+  background: rgba(0, 0, 0, 0.7);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.sw-cam__btn:hover    { color: var(--lime); border-color: var(--lime-dim); }
+.sw-cam__btn:active   { transform: scale(0.97); }
+.sw-cam__btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.sw-cam__btn.is-on    {
+  background: var(--lime);
+  color: var(--bg);
+  border-color: var(--lime);
+}
+.sw-cam__btn--cap {
+  background: rgba(212, 255, 58, 0.1);
+  color: var(--lime);
+  border-color: var(--lime-dim);
+}
+
+/* Magnetic sweep */
+.sw-mag {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 24px 18px;
+  background: var(--bg-tile);
+}
+.sw-mag__readout {
+  text-align: center;
+  margin-bottom: 24px;
+}
+.sw-mag__big {
+  font-family: var(--serif);
+  font-size: 96px;
+  line-height: 1;
+  color: var(--ink);
+  font-weight: 400;
+  transition: color 0.3s;
+}
+.sw-mag__big.is-mid  { color: var(--warn); }
+.sw-mag__big.is-high { color: #ff5c5c; }
+.sw-mag__unit {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--ink-dim);
+  margin-top: 8px;
+}
+.sw-mag__bar {
+  width: 100%;
+  height: 12px;
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+  margin-bottom: 14px;
+}
+.sw-mag__fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(to right, var(--lime), var(--warn) 70%, #ff5c5c);
+  transition: width 0.15s;
+}
+.sw-mag__meta {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-dim);
+  margin-bottom: 18px;
+}
+.sw-mag__meta strong { color: var(--ink); font-weight: 500; }
+.sw-mag .sw-cam__controls {
+  position: static;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
