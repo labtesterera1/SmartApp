@@ -422,23 +422,24 @@ function buildField(def, entry) {
         <button type="button" class="rich-btn" data-act="bold"     title="Bold"><b>B</b></button>
         <button type="button" class="rich-btn" data-act="headline" title="Headline"><b>H</b></button>
         <button type="button" class="rich-btn" data-act="color"    title="Color"><span style="color:var(--lime)">◐</span></button>
+        <button type="button" class="rich-btn" data-act="preview"  title="Toggle preview"><span>👁</span></button>
         <span class="rich-spacer"></span>
         <button type="button" class="rich-btn rich-btn--copy" data-act="copy" title="Copy">⧉</button>
       </div>
       <textarea class="vault-textarea rich-area" data-key="${def.key}"
                 rows="4" placeholder="Markers: **bold**  ## headline  [lime]text[/lime]">${esc(value)}</textarea>
-      <div class="rich-preview" data-for="${def.key}"></div>
+      <div class="rich-preview" data-for="${def.key}" hidden></div>
     `;
     const ta      = wrap.querySelector('textarea');
     const preview = wrap.querySelector('.rich-preview');
+    const previewBtn = wrap.querySelector('[data-act="preview"]');
     autoGrow(ta);
-    renderRichPreview(preview, ta.value);
     ta.addEventListener('input', () => {
       autoGrow(ta);
-      renderRichPreview(preview, ta.value);
+      if (!preview.hidden) renderRichPreview(preview, ta.value);
     });
     wrap.querySelectorAll('.rich-btn').forEach(b => {
-      b.onclick = () => handleRichAction(b.dataset.act, ta, preview);
+      b.onclick = () => handleRichAction(b.dataset.act, ta, preview, previewBtn);
     });
     return wrap;
   }
@@ -527,7 +528,35 @@ function applyDependencies(defs, fieldsRoot) {
    ============================================================ */
 const COLOR_CYCLE = ['', 'lime', 'orange', 'red'];
 
-function handleRichAction(action, textarea, preview) {
+function handleRichAction(action, textarea, preview, previewBtn) {
+  if (action === 'preview') {
+    const showing = !preview.hidden;
+    if (showing) {
+      // Hide preview, show textarea
+      preview.hidden = true;
+      textarea.style.display = '';
+      if (previewBtn) previewBtn.classList.remove('is-active');
+    } else {
+      // Show preview, hide textarea
+      renderRichPreview(preview, textarea.value);
+      preview.hidden = false;
+      textarea.style.display = 'none';
+      if (previewBtn) previewBtn.classList.add('is-active');
+    }
+    return;
+  }
+
+  if (action === 'copy') {
+    copyValue(textarea.value);
+    return;
+  }
+
+  // Block formatting actions while preview is showing
+  if (!preview.hidden) {
+    toast('Toggle preview off to edit', 'warn');
+    return;
+  }
+
   const start = textarea.selectionStart;
   const end   = textarea.selectionEnd;
   const value = textarea.value;
@@ -547,7 +576,6 @@ function handleRichAction(action, textarea, preview) {
     textarea.focus();
     textarea.selectionStart = textarea.selectionEnd = lineStart + newLine.length;
     autoGrow(textarea);
-    renderRichPreview(preview, textarea.value);
     return;
   } else if (action === 'color') {
     // pick next color in cycle
@@ -556,9 +584,6 @@ function handleRichAction(action, textarea, preview) {
     inserted = next ? `[${next}]${sel}[/${next}]` : sel;
     if (!next) toast('Color cleared');
     else toast(`Color: ${next}`);
-  } else if (action === 'copy') {
-    copyValue(textarea.value);
-    return;
   }
 
   if (inserted !== undefined) {
@@ -567,7 +592,6 @@ function handleRichAction(action, textarea, preview) {
     textarea.selectionStart = start;
     textarea.selectionEnd = start + inserted.length;
     autoGrow(textarea);
-    renderRichPreview(preview, textarea.value);
   }
 }
 
