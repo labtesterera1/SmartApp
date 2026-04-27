@@ -1,24 +1,32 @@
 /* ============================================================
-   modules/vault.js
-   Encrypted password vault.
-   - Master password → PBKDF2-SHA256 (250k) → AES-GCM key
+   modules/vault.js   (v0.5 — vault expansion)
+   - Master password (PBKDF2-SHA256, 250k → AES-GCM)
    - Encrypted blob in localStorage; key only in memory
-   - Auto-locks on leaving module + 5 min idle
-   - Last 5 password history per entry
-   - Generator + show/hide toggle
+   - Auto-locks on leaving module + 5 min idle (kicks to unlock screen)
+   - Four entry kinds: personal | ledger | project | basic
+   - Per-field copy buttons everywhere
+   - Password generator: defaults to 30 chars, manual entry also fine
+   - Password history (5-deep) on every password field
+   - Rich notes: bold / headline / color, plain-text markers under the hood
    ============================================================ */
+
+import { toast } from '../core/ui.js';
 
 const STORAGE_KEY = 'smartapp_vault_v1';
 const PBKDF2_ITERATIONS = 250000;
 const IDLE_MS = 5 * 60 * 1000;
 const HISTORY_MAX = 5;
+const GEN_DEFAULT_LEN = 30;
+
+const PROVIDERS = ['Gmail','Claude','Instagram','Facebook','Outlook',
+                   'Netflix','AWS','Azure','Google','Others'];
 
 // In-memory only — wiped on lock/cleanup
 let _key = null;
 let _entries = [];
 let _root = null;
 let _idleTimer = null;
-let _editingId = null;     // null | 'new' | <uuid>
+let _editing = null;          // null | { kind, id|null }
 
 export default {
   id: 'vault',
@@ -31,21 +39,23 @@ export default {
     routeView();
   },
 
-  cleanup() {
-    lock();
-  },
+  cleanup() { lock(); },
 };
 
-/* ---------- View routing ---------- */
+/* ============================================================
+   View routing
+   ============================================================ */
 function routeView() {
-  if (!hasVault())          return renderSetup();
-  if (!_key)                return renderUnlock();
-  if (_editingId)           return renderEditor(_editingId);
+  if (!hasVault())  return renderSetup();
+  if (!_key)        return renderUnlock();
+  if (_editing)     return renderEditor(_editing);
   return renderList();
 }
 function hasVault() { return !!localStorage.getItem(STORAGE_KEY); }
 
-/* ---------- Crypto ---------- */
+/* ============================================================
+   Crypto
+   ============================================================ */
 async function deriveKey(password, salt) {
   const enc = new TextEncoder();
   const baseKey = await crypto.subtle.importKey(
@@ -59,7 +69,6 @@ async function deriveKey(password, salt) {
     ['encrypt', 'decrypt']
   );
 }
-
 async function encryptBlob(plain, key) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const ct = await crypto.subtle.encrypt(
@@ -68,7 +77,6 @@ async function encryptBlob(plain, key) {
   );
   return { iv: bytesToB64(iv), ct: bytesToB64(new Uint8Array(ct)) };
 }
-
 async function decryptBlob(blob, key) {
   const pt = await crypto.subtle.decrypt(
     { name: 'AES-GCM', iv: b64ToBytes(blob.iv) },
@@ -77,7 +85,6 @@ async function decryptBlob(blob, key) {
   );
   return JSON.parse(new TextDecoder().decode(pt));
 }
-
 function bytesToB64(bytes) {
   let s = ''; for (const b of bytes) s += String.fromCharCode(b);
   return btoa(s);
@@ -89,39 +96,43 @@ function b64ToBytes(b64) {
   return bytes;
 }
 
-/* ---------- Storage ---------- */
+/* ============================================================
+   Storage
+   ============================================================ */
 function loadStored() {
   const raw = localStorage.getItem(STORAGE_KEY);
   return raw ? JSON.parse(raw) : null;
 }
-function saveStored(obj) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(obj));
-}
+function saveStored(obj) { localStorage.setItem(STORAGE_KEY, JSON.stringify(obj)); }
 async function persist() {
   const stored = loadStored();
   const blob = await encryptBlob(_entries, _key);
   saveStored({ ...stored, ...blob });
 }
 
-/* ---------- Lock / idle ---------- */
+/* ============================================================
+   Lock / idle
+   ============================================================ */
 function lock() {
   _key = null;
   _entries = [];
-  _editingId = null;
+  _editing = null;
   if (_idleTimer) { clearTimeout(_idleTimer); _idleTimer = null; }
 }
 function bumpIdle() {
   if (_idleTimer) clearTimeout(_idleTimer);
   _idleTimer = setTimeout(() => {
     lock();
-    if (_root && _root.isConnected) routeView();
+    if (_root && _root.isConnected) {
+      routeView();                       // forces unlock screen
+      toast('Vault auto-locked', 'warn');
+    }
   }, IDLE_MS);
 }
 
 /* ============================================================
-   VIEWS
+   SETUP / UNLOCK SCREENS
    ============================================================ */
-
 function renderSetup() {
   _root.innerHTML = `
     <div class="vault-pad">
@@ -137,8 +148,8 @@ function renderSetup() {
       <div class="vault-err" id="err"></div>
       <button class="btn btn--primary vault-cta" id="create">CREATE VAULT</button>
       <div class="vault-pad__caveat">
-        Use this for low-stakes accounts only. Store banking / primary email /
-        recovery codes in a real password manager.
+        Use this for low-stakes accounts only. Bank / primary email /
+        recovery codes belong in a real password manager.
       </div>
     </div>
   `;
@@ -153,8 +164,8 @@ async function handleCreate() {
   const pw2 = _root.querySelector('#pw2').value;
   const err = _root.querySelector('#err');
   err.textContent = '';
-  if (pw1.length < 8)  return err.textContent = 'Use at least 8 characters.';
-  if (pw1 !== pw2)     return err.textContent = 'Passwords do not match.';
+  if (pw1.length < 8) return err.textContent = 'Use at least 8 characters.';
+  if (pw1 !== pw2)    return err.textContent = 'Passwords do not match.';
   const salt = crypto.getRandomValues(new Uint8Array(16));
   _key = await deriveKey(pw1, salt);
   _entries = [];
@@ -200,10 +211,12 @@ async function handleUnlock() {
   }
 }
 
+/* ============================================================
+   LIST SCREEN
+   ============================================================ */
 function renderList() {
   bumpIdle();
-  const sorted = [..._entries].sort((a, b) =>
-    (a.title || '').localeCompare(b.title || ''));
+  const sorted = [..._entries].sort((a, b) => (b.updatedAt||0) - (a.updatedAt||0));
 
   _root.innerHTML = `
     <div class="vault-bar">
@@ -213,85 +226,137 @@ function renderList() {
       <span class="vault-bar__info">AUTO-LOCK 5MIN</span>
       <button class="vault-bar__lock" id="lockNow">⚿ LOCK</button>
     </div>
-    <button class="btn btn--primary vault-add" id="add">+ ADD ENTRY</button>
+
+    <div class="vault-addgroup">
+      <button class="btn btn--primary vault-add" data-kind="personal">+ PERSONAL</button>
+      <button class="btn btn--primary vault-add" data-kind="ledger">+ LEDGER</button>
+      <button class="btn btn--primary vault-add" data-kind="project">+ PROJECT</button>
+      <button class="btn btn--primary vault-add" data-kind="basic">+ BASIC</button>
+    </div>
+
     <div class="vault-list">
       ${sorted.length === 0
         ? `<div class="placeholder">
              <div class="placeholder__icon">·</div>
-             No entries yet. Tap + ADD ENTRY.
+             No entries yet. Tap one of the + buttons above.
            </div>`
-        : sorted.map(e => `
-          <button class="vault-row" data-id="${e.id}">
-            <div class="vault-row__main">
-              <div class="vault-row__title">${esc(e.title || 'Untitled')}</div>
-              <div class="vault-row__sub">${esc(e.username || '—')}</div>
-            </div>
-            <span class="vault-row__chev">→</span>
-          </button>
-        `).join('')}
+        : sorted.map(rowHtml).join('')}
     </div>
   `;
-  _root.querySelector('#add').onclick = () => { _editingId = 'new'; renderEditor('new'); };
+
+  _root.querySelectorAll('.vault-add').forEach(btn => {
+    btn.onclick = () => {
+      _editing = { kind: btn.dataset.kind, id: null };
+      renderEditor(_editing);
+    };
+  });
   _root.querySelector('#lockNow').onclick = () => { lock(); routeView(); };
   _root.querySelectorAll('.vault-row').forEach(r => {
-    r.onclick = () => { _editingId = r.dataset.id; renderEditor(r.dataset.id); };
+    r.onclick = () => {
+      const e = _entries.find(x => x.id === r.dataset.id);
+      _editing = { kind: e.kind || 'personal', id: r.dataset.id };
+      renderEditor(_editing);
+    };
   });
 }
 
-function renderEditor(id) {
+function rowHtml(e) {
+  const kind = e.kind || 'personal';
+  const title = displayTitle(e);
+  const sub   = displaySub(e);
+  return `
+    <button class="vault-row" data-id="${e.id}">
+      <span class="vault-chip vault-chip--${kind}">${kind.toUpperCase()}</span>
+      <div class="vault-row__main">
+        <div class="vault-row__title">${esc(title)}</div>
+        <div class="vault-row__sub">${esc(sub)}</div>
+      </div>
+      <span class="vault-row__chev">→</span>
+    </button>
+  `;
+}
+
+function displayTitle(e) {
+  if (e.kind === 'project') return e.projectName || 'Untitled project';
+  if (e.kind === 'ledger')  return e.title || e.provider || 'Untitled ledger';
+  if (e.kind === 'basic')   return e.username || 'Untitled basic';
+  return e.title || 'Untitled';
+}
+function displaySub(e) {
+  if (e.kind === 'project') return e.username || e.projectEmail || '—';
+  if (e.kind === 'ledger')  return [e.provider, e.username].filter(Boolean).join(' · ') || '—';
+  if (e.kind === 'basic')   return '—';
+  return e.username || '—';
+}
+
+/* ============================================================
+   FIELD DEFINITIONS — driven by entry kind
+   ============================================================ */
+const FIELD_DEFS = {
+  personal: [
+    { key: 'title',    label: 'Title',    type: 'text' },
+    { key: 'username', label: 'Username', type: 'text' },
+    { key: 'password', label: 'Password', type: 'password' },
+    { key: 'url',      label: 'URL',      type: 'url' },
+    { key: 'notes',    label: 'Notes',    type: 'rich' },
+  ],
+  ledger: [
+    { key: 'provider',       label: 'Provider', type: 'select', options: PROVIDERS },
+    { key: 'providerCustom', label: 'Custom Provider', type: 'text', dependsOn: { provider: 'Others' } },
+    { key: 'title',          label: 'Title',    type: 'text' },
+    { key: 'username',       label: 'Username', type: 'text' },
+    { key: 'password',       label: 'Password', type: 'password' },
+    { key: 'url',            label: 'URL',      type: 'url' },
+    { key: 'apiKey',         label: 'API Key',  type: 'password' },
+    { key: 'notes',          label: 'Notes',    type: 'rich' },
+  ],
+  project: [
+    { key: 'projectName',     label: 'Project Name',     type: 'text' },
+    { key: 'username',        label: 'Username',         type: 'text' },
+    { key: 'projectEmail',    label: 'Project Email',    type: 'email' },
+    { key: 'projectEmailPw',  label: 'Project Email Password', type: 'password' },
+    { key: 'productEmail',    label: 'Project Product Email', type: 'email' },
+    { key: 'productPw',       label: 'Project Product Password', type: 'password' },
+    { key: 'url1',            label: 'Project URL 1',    type: 'url' },
+    { key: 'url2',            label: 'Project URL 2',    type: 'url' },
+    { key: 'url3',            label: 'Project URL 3',    type: 'url' },
+    { key: 'contact',         label: 'Project Contact',  type: 'text' },
+    { key: 'notes',           label: 'Notes',            type: 'rich' },
+  ],
+  basic: [
+    { key: 'username', label: 'Username', type: 'text' },
+    { key: 'password', label: 'Password', type: 'password' },
+    { key: 'notes',    label: 'Notes',    type: 'rich' },
+  ],
+};
+
+/* ============================================================
+   EDITOR SCREEN
+   ============================================================ */
+function renderEditor(state) {
   bumpIdle();
-  const isNew = id === 'new';
+  const isNew = !state.id;
+  const kind  = state.kind;
+  const defs  = FIELD_DEFS[kind] || FIELD_DEFS.personal;
   const entry = isNew
-    ? { id: uuid(), title: '', username: '', password: '', url: '', notes: '', history: [] }
-    : _entries.find(e => e.id === id);
+    ? { id: uuid(), kind, history: {} }
+    : { ..._entries.find(e => e.id === state.id) };
+
+  if (!entry.history) entry.history = {};
+
+  const kindLabel = ({
+    personal: 'PERSONAL ENTRY',
+    ledger:   'LEDGER ENTRY',
+    project:  'PROJECT ENTRY',
+    basic:    'BASIC ENTRY',
+  })[kind];
 
   _root.innerHTML = `
     <button class="vault-crumb" id="back">← ENTRIES</button>
-
-    <label class="vault-field">
-      <span class="vault-field__label">Title</span>
-      <input type="text" id="f-title" value="${esc(entry.title)}" placeholder="Gmail, Twitter, …">
-    </label>
-
-    <label class="vault-field">
-      <span class="vault-field__label">Username</span>
-      <input type="text" id="f-username" value="${esc(entry.username)}" autocomplete="off">
-    </label>
-
-    <label class="vault-field">
-      <span class="vault-field__label">Password</span>
-      <div class="vault-pwrow">
-        <input type="password" id="f-password" value="${esc(entry.password)}" autocomplete="new-password">
-        <button class="vault-pwrow__btn" id="show" title="Show / hide" type="button">●●●</button>
-        <button class="vault-pwrow__btn" id="gen"  title="Generate strong" type="button">⚘</button>
-      </div>
-    </label>
-
-    <label class="vault-field">
-      <span class="vault-field__label">URL</span>
-      <input type="url" id="f-url" value="${esc(entry.url)}" placeholder="https://">
-    </label>
-
-    <label class="vault-field">
-      <span class="vault-field__label">Notes</span>
-      <textarea id="f-notes" rows="4">${esc(entry.notes)}</textarea>
-    </label>
-
-    ${entry.history && entry.history.length > 0 ? `
-      <div class="vault-history">
-        <div class="vault-history__head">PASSWORD HISTORY · LAST ${HISTORY_MAX}</div>
-        ${entry.history.map((h, i) => `
-          <div class="vault-history__row">
-            <span class="vault-history__pw" data-pw="${esc(h.password)}" data-idx="${i}">
-              ●●●●●●●●●●●●
-            </span>
-            <span class="vault-history__date">
-              ${new Date(h.changedAt).toLocaleDateString()}
-            </span>
-            <button class="vault-history__reveal" data-idx="${i}" type="button">show</button>
-          </div>
-        `).join('')}
-      </div>` : ''}
+    <div class="vault-editor-head">
+      <span class="vault-chip vault-chip--${kind}">${kindLabel}</span>
+    </div>
+    <div id="fields"></div>
 
     <div class="vault-actions">
       <button class="btn btn--primary" id="save">SAVE</button>
@@ -300,79 +365,299 @@ function renderEditor(id) {
     </div>
   `;
 
-  // Bump idle on any input
-  ['#f-title','#f-username','#f-password','#f-url','#f-notes'].forEach(s => {
-    _root.querySelector(s).addEventListener('input', bumpIdle);
-  });
+  const fieldsRoot = _root.querySelector('#fields');
+  defs.forEach(def => fieldsRoot.appendChild(buildField(def, entry)));
 
-  _root.querySelector('#back').onclick = backToList;
+  _root.querySelector('#back').onclick   = backToList;
   _root.querySelector('#cancel').onclick = backToList;
+  _root.querySelector('#save').onclick   = () => saveEntry(entry, defs, isNew);
+  if (!isNew) _root.querySelector('#del').onclick = () => deleteEntry(entry);
 
-  _root.querySelector('#show').onclick = () => {
-    const inp = _root.querySelector('#f-password');
-    inp.type = inp.type === 'password' ? 'text' : 'password';
-  };
-  _root.querySelector('#gen').onclick = () => {
-    const inp = _root.querySelector('#f-password');
-    inp.value = generatePassword(16);
-    inp.type = 'text';
-  };
+  // Bump idle on any input
+  fieldsRoot.addEventListener('input', bumpIdle);
+  fieldsRoot.addEventListener('focusin', bumpIdle);
 
-  _root.querySelectorAll('.vault-history__reveal').forEach(btn => {
+  applyDependencies(defs, fieldsRoot);
+}
+
+/* ---------- Field builder ---------- */
+function buildField(def, entry) {
+  const wrap = document.createElement('label');
+  wrap.className = 'vault-field';
+  wrap.dataset.fieldKey = def.key;
+
+  const value = entry[def.key] || '';
+
+  if (def.type === 'select') {
+    wrap.innerHTML = `
+      <span class="vault-field__label">${def.label}</span>
+      <select class="vault-select" data-key="${def.key}">
+        <option value="">— Select —</option>
+        ${def.options.map(o => `
+          <option value="${esc(o)}" ${value === o ? 'selected' : ''}>${esc(o)}</option>
+        `).join('')}
+      </select>
+    `;
+    wrap.querySelector('select').addEventListener('change', e => {
+      entry[def.key] = e.target.value;
+      applyDependencies(FIELD_DEFS[entry.kind], _root.querySelector('#fields'));
+    });
+    return wrap;
+  }
+
+  if (def.type === 'rich') {
+    wrap.classList.add('vault-field--rich');
+    wrap.innerHTML = `
+      <span class="vault-field__label">${def.label}</span>
+      <div class="rich-toolbar">
+        <button type="button" class="rich-btn" data-act="bold"     title="Bold"><b>B</b></button>
+        <button type="button" class="rich-btn" data-act="headline" title="Headline"><b>H</b></button>
+        <button type="button" class="rich-btn" data-act="color"    title="Color"><span style="color:var(--lime)">◐</span></button>
+        <span class="rich-spacer"></span>
+        <button type="button" class="rich-btn rich-btn--copy" data-act="copy" title="Copy">⧉</button>
+      </div>
+      <textarea class="vault-textarea rich-area" data-key="${def.key}"
+                rows="4" placeholder="Markers: **bold**  ## headline  [lime]text[/lime]">${esc(value)}</textarea>
+      <div class="rich-preview" data-for="${def.key}"></div>
+    `;
+    const ta      = wrap.querySelector('textarea');
+    const preview = wrap.querySelector('.rich-preview');
+    autoGrow(ta);
+    renderRichPreview(preview, ta.value);
+    ta.addEventListener('input', () => {
+      autoGrow(ta);
+      renderRichPreview(preview, ta.value);
+    });
+    wrap.querySelectorAll('.rich-btn').forEach(b => {
+      b.onclick = () => handleRichAction(b.dataset.act, ta, preview);
+    });
+    return wrap;
+  }
+
+  // text / url / email / password — all rendered with optional copy + (for password) show/gen
+  const isPw = def.type === 'password';
+  const inputType = isPw ? 'password' : (def.type === 'email' ? 'email' : (def.type === 'url' ? 'url' : 'text'));
+
+  wrap.innerHTML = `
+    <span class="vault-field__label">${def.label}</span>
+    <div class="vault-pwrow">
+      <input type="${inputType}" data-key="${def.key}" value="${esc(value)}"
+             autocomplete="off" ${isPw ? 'spellcheck="false"' : ''}>
+      ${isPw ? `
+        <button type="button" class="vault-pwrow__btn" data-act="show" title="Show / hide">●●●</button>
+        <button type="button" class="vault-pwrow__btn" data-act="gen"  title="Generate strong (30 chars)">⚘</button>
+      ` : ''}
+      <button type="button" class="vault-pwrow__btn vault-pwrow__btn--copy" data-act="copy" title="Copy">⧉</button>
+    </div>
+    ${isPw && entry.history[def.key] && entry.history[def.key].length > 0 ? historyHtml(def.key, entry.history[def.key]) : ''}
+  `;
+
+  const input = wrap.querySelector('input');
+  if (isPw) {
+    wrap.querySelector('[data-act="show"]').onclick = () => {
+      input.type = input.type === 'password' ? 'text' : 'password';
+    };
+    wrap.querySelector('[data-act="gen"]').onclick = () => {
+      input.value = generatePassword(GEN_DEFAULT_LEN);
+      input.type = 'text';
+      toast('✓ Generated 30-char password');
+    };
+  }
+  wrap.querySelector('[data-act="copy"]').onclick = () => copyValue(input.value);
+
+  // History reveal
+  wrap.querySelectorAll('.vault-history__reveal').forEach(btn => {
     btn.onclick = () => {
       const i = btn.dataset.idx;
-      const span = _root.querySelector(`.vault-history__pw[data-idx="${i}"]`);
+      const span = wrap.querySelector(`.vault-history__pw[data-idx="${i}"]`);
       const real = span.dataset.pw;
       const showing = span.textContent.trim() === real;
       span.textContent = showing ? '●●●●●●●●●●●●' : real;
       btn.textContent = showing ? 'show' : 'hide';
     };
   });
+  wrap.querySelectorAll('.vault-history__copy').forEach(btn => {
+    btn.onclick = () => copyValue(btn.dataset.pw);
+  });
 
-  _root.querySelector('#save').onclick = async () => {
-    const next = {
-      id: entry.id,
-      title:    _root.querySelector('#f-title').value.trim(),
-      username: _root.querySelector('#f-username').value.trim(),
-      password: _root.querySelector('#f-password').value,
-      url:      _root.querySelector('#f-url').value.trim(),
-      notes:    _root.querySelector('#f-notes').value,
-      history:  entry.history || [],
-      createdAt: entry.createdAt || Date.now(),
-      updatedAt: Date.now(),
-    };
-    if (!next.title) { alert('Title is required.'); return; }
+  return wrap;
+}
 
-    // Push old password to history if it changed
-    if (!isNew && entry.password && entry.password !== next.password) {
-      next.history = [
-        { password: entry.password, changedAt: entry.updatedAt || Date.now() },
-        ...(entry.history || [])
-      ].slice(0, HISTORY_MAX);
-    }
+function historyHtml(fieldKey, history) {
+  return `
+    <div class="vault-history">
+      <div class="vault-history__head">PASSWORD HISTORY · LAST ${HISTORY_MAX}</div>
+      ${history.map((h, i) => `
+        <div class="vault-history__row">
+          <span class="vault-history__pw" data-pw="${esc(h.password)}" data-idx="${i}">●●●●●●●●●●●●</span>
+          <span class="vault-history__date">${new Date(h.changedAt).toLocaleDateString()}</span>
+          <button class="vault-history__reveal" data-idx="${i}" type="button">show</button>
+          <button class="vault-history__copy" data-pw="${esc(h.password)}" type="button">copy</button>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
 
-    if (isNew) _entries.push(next);
-    else {
-      const i = _entries.findIndex(e => e.id === entry.id);
-      _entries[i] = next;
-    }
-    await persist();
-    backToList();
-  };
+/* ---------- Dependent fields (e.g. providerCustom shows only when provider=Others) ---------- */
+function applyDependencies(defs, fieldsRoot) {
+  defs.forEach(def => {
+    if (!def.dependsOn) return;
+    const wrap = fieldsRoot.querySelector(`[data-field-key="${def.key}"]`);
+    if (!wrap) return;
+    const matches = Object.entries(def.dependsOn).every(([k, v]) => {
+      const ctrl = fieldsRoot.querySelector(`[data-key="${k}"]`);
+      return ctrl && ctrl.value === v;
+    });
+    wrap.style.display = matches ? '' : 'none';
+  });
+}
 
-  if (!isNew) {
-    _root.querySelector('#del').onclick = async () => {
-      if (!confirm(`Delete "${entry.title}"? Cannot be undone.`)) return;
-      _entries = _entries.filter(e => e.id !== entry.id);
-      await persist();
-      backToList();
-    };
+/* ============================================================
+   Rich notes — formatting actions
+   ============================================================ */
+const COLOR_CYCLE = ['', 'lime', 'orange', 'red'];
+
+function handleRichAction(action, textarea, preview) {
+  const start = textarea.selectionStart;
+  const end   = textarea.selectionEnd;
+  const value = textarea.value;
+  const sel   = value.slice(start, end) || 'text';
+
+  let inserted;
+  if (action === 'bold') {
+    inserted = `**${sel}**`;
+  } else if (action === 'headline') {
+    // headline acts on whole line — find line bounds
+    const lineStart = value.lastIndexOf('\n', start - 1) + 1;
+    const lineEnd = value.indexOf('\n', start);
+    const e = lineEnd === -1 ? value.length : lineEnd;
+    const line = value.slice(lineStart, e);
+    const newLine = line.startsWith('## ') ? line.slice(3) : `## ${line}`;
+    textarea.value = value.slice(0, lineStart) + newLine + value.slice(e);
+    textarea.focus();
+    textarea.selectionStart = textarea.selectionEnd = lineStart + newLine.length;
+    autoGrow(textarea);
+    renderRichPreview(preview, textarea.value);
+    return;
+  } else if (action === 'color') {
+    // pick next color in cycle
+    const next = COLOR_CYCLE[(COLOR_CYCLE.indexOf(textarea.dataset.lastColor || '') + 1) % COLOR_CYCLE.length];
+    textarea.dataset.lastColor = next;
+    inserted = next ? `[${next}]${sel}[/${next}]` : sel;
+    if (!next) toast('Color cleared');
+    else toast(`Color: ${next}`);
+  } else if (action === 'copy') {
+    copyValue(textarea.value);
+    return;
+  }
+
+  if (inserted !== undefined) {
+    textarea.value = value.slice(0, start) + inserted + value.slice(end);
+    textarea.focus();
+    textarea.selectionStart = start;
+    textarea.selectionEnd = start + inserted.length;
+    autoGrow(textarea);
+    renderRichPreview(preview, textarea.value);
   }
 }
 
-function backToList() { _editingId = null; renderList(); }
+function autoGrow(textarea) {
+  textarea.style.height = 'auto';
+  textarea.style.height = (textarea.scrollHeight + 2) + 'px';
+}
 
-/* ---------- Helpers ---------- */
+function renderRichPreview(el, raw) {
+  if (!raw || !raw.trim()) { el.innerHTML = ''; el.style.display = 'none'; return; }
+  el.style.display = '';
+  // Encode first, then convert markers — order matters
+  let html = esc(raw);
+  // Headline:  ## something  (start of line)
+  html = html.replace(/^##\s+(.+)$/gm, '<span class="rich-h">$1</span>');
+  // Bold:  **anything**
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  // Color:  [lime]text[/lime] etc.
+  html = html.replace(/\[(lime|orange|red)\]([\s\S]*?)\[\/\1\]/g,
+    (_m, c, t) => `<span class="rich-c rich-c--${c}">${t}</span>`);
+  // Newlines
+  html = html.replace(/\n/g, '<br>');
+  el.innerHTML = html;
+}
+
+/* ============================================================
+   Save / delete
+   ============================================================ */
+async function saveEntry(entry, defs, isNew) {
+  // Read all field values from DOM
+  const fieldsRoot = _root.querySelector('#fields');
+  const next = { ...entry };
+  defs.forEach(def => {
+    const ctrl = fieldsRoot.querySelector(`[data-key="${def.key}"]`);
+    if (ctrl) next[def.key] = ctrl.value;
+  });
+  next.kind = entry.kind;
+  next.history = entry.history || {};
+  next.createdAt = entry.createdAt || Date.now();
+  next.updatedAt = Date.now();
+
+  // Validate per kind
+  const titleField = displayTitle(next);
+  if (!titleField || titleField.startsWith('Untitled')) {
+    toast('A title / name is required', 'warn');
+    return;
+  }
+
+  // Push old passwords into history if changed
+  if (!isNew) {
+    const old = _entries.find(e => e.id === entry.id) || {};
+    defs.filter(d => d.type === 'password').forEach(d => {
+      const oldVal = old[d.key];
+      const newVal = next[d.key];
+      if (oldVal && oldVal !== newVal) {
+        next.history[d.key] = [
+          { password: oldVal, changedAt: old.updatedAt || Date.now() },
+          ...(next.history[d.key] || []),
+        ].slice(0, HISTORY_MAX);
+      }
+    });
+  }
+
+  if (isNew) _entries.push(next);
+  else {
+    const i = _entries.findIndex(e => e.id === entry.id);
+    _entries[i] = next;
+  }
+  await persist();
+  toast(isNew ? '✓ Entry created' : '✓ Saved');
+  backToList();
+}
+
+async function deleteEntry(entry) {
+  const t = displayTitle(entry);
+  if (!confirm(`Delete "${t}"? Cannot be undone.`)) return;
+  _entries = _entries.filter(e => e.id !== entry.id);
+  await persist();
+  toast('✓ Deleted');
+  backToList();
+}
+
+function backToList() { _editing = null; renderList(); }
+
+/* ============================================================
+   Helpers
+   ============================================================ */
+async function copyValue(value) {
+  if (value == null || value === '') {
+    toast('Nothing to copy', 'warn');
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(String(value));
+    toast('✓ Copied');
+  } catch {
+    toast('Copy failed', 'err');
+  }
+}
 function uuid() {
   if (crypto.randomUUID) return crypto.randomUUID();
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
