@@ -28,6 +28,8 @@ let _entries = [];
 let _root = null;
 let _idleTimer = null;
 let _editing = null;          // null | { kind, id|null }
+let _filter = 'all';          // 'all' | 'personal' | 'ledger' | 'project' | 'basic'
+let _search = '';
 
 export default {
   id: 'vault',
@@ -118,6 +120,8 @@ function lock() {
   _key = null;
   _entries = [];
   _editing = null;
+  _filter = 'all';
+  _search = '';
   if (_idleTimer) { clearTimeout(_idleTimer); _idleTimer = null; }
 }
 function bumpIdle() {
@@ -219,6 +223,26 @@ function renderList() {
   bumpIdle();
   const sorted = [..._entries].sort((a, b) => (b.updatedAt||0) - (a.updatedAt||0));
 
+  const counts = {
+    all:      _entries.length,
+    personal: _entries.filter(e => (e.kind || 'personal') === 'personal').length,
+    ledger:   _entries.filter(e => e.kind === 'ledger').length,
+    project:  _entries.filter(e => e.kind === 'project').length,
+    basic:    _entries.filter(e => e.kind === 'basic').length,
+  };
+
+  const filtered = sorted.filter(e => {
+    const kind = e.kind || 'personal';
+    if (_filter !== 'all' && kind !== _filter) return false;
+    if (_search) {
+      const hay = JSON.stringify(e).toLowerCase();
+      if (!hay.includes(_search.toLowerCase())) return false;
+    }
+    return true;
+  });
+
+  const showSearch = _entries.length >= 10;
+
   _root.innerHTML = `
     <div class="vault-banner">🔒 ENCRYPTED LOCALLY · NO SYNC</div>
 
@@ -243,16 +267,35 @@ function renderList() {
       <button class="btn btn--primary vault-add" data-kind="basic">+ BASIC</button>
     </div>
 
+    <div class="filter-bar">
+      <button class="filter-pill ${_filter === 'all' ? 'is-active' : ''}" data-f="all">ALL (${counts.all})</button>
+      <button class="filter-pill ${_filter === 'personal' ? 'is-active' : ''}" data-f="personal">PERSONAL (${counts.personal})</button>
+      <button class="filter-pill ${_filter === 'ledger' ? 'is-active' : ''}" data-f="ledger">LEDGER (${counts.ledger})</button>
+      <button class="filter-pill ${_filter === 'project' ? 'is-active' : ''}" data-f="project">PROJECT (${counts.project})</button>
+      <button class="filter-pill ${_filter === 'basic' ? 'is-active' : ''}" data-f="basic">BASIC (${counts.basic})</button>
+    </div>
+
+    ${showSearch ? `
+      <div class="search-bar">
+        <input type="search" id="search" class="search-input"
+               placeholder="🔍 Search…" value="${esc(_search)}">
+        ${_search ? '<button class="search-clear" id="searchClear" type="button">×</button>' : ''}
+      </div>
+    ` : ''}
+
     <div class="vault-list">
-      ${sorted.length === 0
-        ? `<div class="empty-card">
-             <div class="empty-card__icon">⊕</div>
-             <div class="empty-card__title">No entries yet</div>
-             <div class="empty-card__desc">
-               Start with the kind that fits — pick one above.
-             </div>
-           </div>`
-        : sorted.map(rowHtml).join('')}
+      ${filtered.length === 0
+        ? (sorted.length === 0
+          ? `<div class="empty-card">
+               <div class="empty-card__icon">⊕</div>
+               <div class="empty-card__title">No entries yet</div>
+               <div class="empty-card__desc">Start with the kind that fits — pick one above.</div>
+             </div>`
+          : `<div class="placeholder">
+               <div class="placeholder__icon">·</div>
+               No matches.
+             </div>`)
+        : filtered.map(rowHtml).join('')}
     </div>
   `;
 
@@ -262,6 +305,15 @@ function renderList() {
       renderEditor(_editing);
     };
   });
+  _root.querySelectorAll('.filter-pill').forEach(btn => {
+    btn.onclick = () => { _filter = btn.dataset.f; renderList(); };
+  });
+  if (showSearch) {
+    const si = _root.querySelector('#search');
+    si.addEventListener('input', () => { _search = si.value; renderList(); setTimeout(() => si.focus(), 0); });
+    const sc = _root.querySelector('#searchClear');
+    if (sc) sc.onclick = () => { _search = ''; renderList(); };
+  }
   _root.querySelector('#lockNow').onclick = () => { lock(); routeView(); };
   _root.querySelector('#exportBtn').onclick = exportVault;
   _root.querySelector('#importBtn').onclick = () => _root.querySelector('#importFile').click();
