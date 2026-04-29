@@ -7,7 +7,7 @@
 
    To force users to pick up new code: bump CACHE_NAME below.
    ============================================================ */
-const CACHE_NAME = 'smartapp-shell-v0.9';
+const CACHE_NAME = 'smartapp-shell-v0.10';
 const SHELL = [
   './',
   './index.html',
@@ -19,10 +19,12 @@ const SHELL = [
   './core/version.js',
   './core/profile.js',
   './core/persistence.js',
+  './core/quotes.js',
   './modules/ledger.js',
   './modules/documents.js',
   './modules/sweep.js',
   './modules/vault.js',
+  './modules/reader.js',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/icon-192-maskable.png',
