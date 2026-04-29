@@ -12,6 +12,7 @@
 
 import { toast } from '../core/ui.js';
 import { recordActivity } from '../core/profile.js';
+import { openReaderOverlay } from '../core/reader-overlay.js';
 
 const STORAGE_KEY = 'smartapp_vault_v1';
 const PBKDF2_ITERATIONS = 250000;
@@ -483,6 +484,7 @@ function buildField(def, entry) {
         <button type="button" class="rich-btn" data-act="color"    title="Color"><span style="color:var(--lime)">◐</span></button>
         <button type="button" class="rich-btn" data-act="preview"  title="Toggle preview"><span>👁</span></button>
         <button type="button" class="rich-btn ${isCasual ? 'is-active' : ''}" data-act="casual" title="Casual reading mode">aA</button>
+        <button type="button" class="rich-btn" data-act="reader"   title="Open in reader">📖</button>
         <span class="rich-spacer"></span>
         <button type="button" class="rich-btn rich-btn--copy" data-act="copy" title="Copy">⧉</button>
       </div>
@@ -508,6 +510,13 @@ function buildField(def, entry) {
           casualBtn.classList.toggle('is-active', willBeCasual);
           entry._casualNotes = willBeCasual;
           autoGrow(ta);
+          return;
+        }
+        if (b.dataset.act === 'reader') {
+          openReaderOverlay({
+            title: displayTitle(entry),
+            body: ta.value,
+          });
           return;
         }
         handleRichAction(b.dataset.act, ta, preview, previewBtn);

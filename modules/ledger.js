@@ -10,6 +10,7 @@
 import { db } from '../core/storage.js';
 import { toast } from '../core/ui.js';
 import { recordActivity } from '../core/profile.js';
+import { openReaderOverlay } from '../core/reader-overlay.js';
 
 const STORE_ACC  = 'signupkit';
 const STORE_URL  = 'signup_urls';
@@ -326,6 +327,7 @@ function buildField(def, entry) {
         <button type="button" class="rich-btn" data-act="color"    title="Color"><span style="color:var(--lime)">◐</span></button>
         <button type="button" class="rich-btn" data-act="preview"  title="Toggle preview"><span>👁</span></button>
         <button type="button" class="rich-btn ${isCasual ? 'is-active' : ''}" data-act="casual" title="Casual reading mode">aA</button>
+        <button type="button" class="rich-btn" data-act="reader"   title="Open in reader">📖</button>
         <span class="rich-spacer"></span>
         <button type="button" class="rich-btn rich-btn--copy" data-act="copy" title="Copy">⧉</button>
       </div>
@@ -351,6 +353,14 @@ function buildField(def, entry) {
           casualBtn.classList.toggle('is-active', will);
           entry._casualNotes = will;
           autoGrow(ta);
+          return;
+        }
+        if (b.dataset.act === 'reader') {
+          // Build a sensible title from the entry
+          const title = entry.name || entry.title || entry.username
+            || [entry.firstName, entry.lastName].filter(Boolean).join(' ')
+            || (entry.url ? 'URL note' : 'Account note');
+          openReaderOverlay({ title, body: ta.value });
           return;
         }
         handleRichAction(b.dataset.act, ta, preview, previewBtn);
