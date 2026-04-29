@@ -16,9 +16,11 @@ import {
   getProfilePic, clearProfilePic, saveProfilePicFromFile,
   getDisplayName, setDisplayName,
   getRecent, clearRecent,
+  getNameStyle, getNameStyleId, setNameStyleId, NAME_STYLES,
 } from './profile.js';
 import { toast } from './ui.js';
 import { getDailyQuote, getLang, setLang, bumpShuffle } from './quotes.js';
+import { getTimeArtSvg, getBandLabel } from './timeart.js';
 
 // ↓↓↓ THE REGISTRY — edit this to add/remove icons ↓↓↓
 const MODULES = [ledger, documents, reader, sweep, vault];
@@ -132,6 +134,20 @@ async function renderSettings() {
           </span>
         </div>
         <div class="set-row">
+          <span class="set-row__k">STYLE</span>
+          <span class="set-row__v">
+            <div class="style-picker" id="style-picker">
+              ${NAME_STYLES.map(s => `
+                <button class="style-chip ${getNameStyleId() === s.id ? 'is-active' : ''}"
+                        data-id="${s.id}" type="button">
+                  <span class="style-chip__sample namestyle namestyle--${s.id}">${escape(getDisplayName())}</span>
+                  <span class="style-chip__lbl">${escape(s.label)}</span>
+                </button>
+              `).join('')}
+            </div>
+          </span>
+        </div>
+        <div class="set-row">
           <span class="set-row__k">PICTURE</span>
           <span class="set-row__v">
             <button class="vault-tool-btn" id="set-pic">CHANGE</button>
@@ -178,9 +194,20 @@ async function renderSettings() {
     setDisplayName(name);
     paintAvatar();
     toast('✓ Name saved');
+    renderSettings();   // refresh chip samples with new name
   };
   view.querySelector('#display-name').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') view.querySelector('#save-name').click();
+  });
+
+  // Style picker
+  view.querySelectorAll('.style-chip').forEach(btn => {
+    btn.onclick = () => {
+      setNameStyleId(btn.dataset.id);
+      view.querySelectorAll('.style-chip').forEach(b =>
+        b.classList.toggle('is-active', b === btn));
+      toast('✓ Style applied');
+    };
   });
 
   // Install card
@@ -286,13 +313,20 @@ function showLauncher() {
 
   const name = getDisplayName();
   const greeting = greetingFor(new Date());
+  const style = getNameStyle();
 
   const view = document.getElementById('view');
   view.innerHTML = `
     <div class="launcher">
-      <div class="launcher__hello">
-        <h1>${escape(greeting)}<br><em>${escape(name)}.</em></h1>
-        <p class="launcher__date">${escape(formatDateLong(new Date()))}</p>
+      <div class="launcher__top">
+        <div class="launcher__greeting">
+          <h1>${escape(greeting)}<br><em class="namestyle namestyle--${style.id}">${escape(name)}.</em></h1>
+          <p class="launcher__date">${escape(formatDateLong(new Date()))}</p>
+        </div>
+        <div class="launcher__art" id="time-art" aria-hidden="true">
+          ${getTimeArtSvg()}
+          <span class="launcher__art-label">${escape(getBandLabel())}</span>
+        </div>
       </div>
 
       <div id="quote-banner"></div>
@@ -316,6 +350,7 @@ function paintQuote(container) {
   const isHi = q.lang === 'hi';
   container.innerHTML = `
     <div class="quote-card">
+      <span class="quote-card__br1"></span><span class="quote-card__br2"></span>
       <div class="quote-card__head">
         <span class="quote-card__label">DAILY · ${q.idx + 1}/${q.total}</span>
         <span class="quote-card__actions">

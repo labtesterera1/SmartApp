@@ -5,5 +5,5 @@
    Bump this on each meaningful release.
    ============================================================ */
 
-export const VERSION = '0.10';
-export const BUILD   = 'reader-tabs-filter';
+export const VERSION = '0.11';
+export const BUILD   = 'reader-art-style';

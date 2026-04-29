@@ -8,6 +8,7 @@
 
 const PIC_KEY    = 'smartapp_profile_pic_v1';
 const NAME_KEY   = 'smartapp_profile_name_v1';
+const STYLE_KEY  = 'smartapp_profile_style_v1';
 const RECENT_KEY = 'smartapp_recent_v1';
 const RECENT_MAX = 6;
 
@@ -22,6 +23,32 @@ export function setDisplayName(name) {
     if (!trimmed) localStorage.removeItem(NAME_KEY);
     else          localStorage.setItem(NAME_KEY, trimmed);
   } catch {}
+}
+
+/* ---------- Name style preset ----------
+   Four curated combinations. Each preset references CSS custom props
+   that are defined in app.css to keep DOM tidy. */
+export const NAME_STYLES = [
+  { id: 'default', label: 'Italic Lime',   font: 'serif',     italic: true,  color: 'lime'  },
+  { id: 'bold',    label: 'Bold White',    font: 'serif',     italic: false, color: 'ink'   },
+  { id: 'amber',   label: 'Italic Amber',  font: 'serif',     italic: true,  color: 'amber' },
+  { id: 'mono',    label: 'Mono Lime',     font: 'mono',      italic: false, color: 'lime'  },
+];
+export function getNameStyleId() {
+  try {
+    const s = localStorage.getItem(STYLE_KEY);
+    return s && NAME_STYLES.some(p => p.id === s) ? s : 'default';
+  } catch { return 'default'; }
+}
+export function setNameStyleId(id) {
+  try {
+    if (NAME_STYLES.some(p => p.id === id)) {
+      localStorage.setItem(STYLE_KEY, id);
+    }
+  } catch {}
+}
+export function getNameStyle() {
+  return NAME_STYLES.find(p => p.id === getNameStyleId()) || NAME_STYLES[0];
 }
 
 /* ---------- Profile picture ---------- */
