@@ -8,13 +8,14 @@
    ============================================================ */
 
 const DB_NAME = 'smartapp';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 // Register stores up-front so future modules can declare them here.
 const STORES = [
-  'documents',   // Document Hub
-  'signupkit',   // Sign-Up Kit (was Ledger placeholder)
-  // 'receipts_meta', etc. — add new stores in future steps
+  'documents',     // Document Hub
+  'signupkit',     // Sign-Up Kit accounts
+  'signup_urls',   // Sign-Up Kit URLs (independent list)
+  'reader_notes',  // Reader / Notes module
 ];
 
 let _dbPromise = null;

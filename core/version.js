@@ -5,5 +5,5 @@
    Bump this on each meaningful release.
    ============================================================ */
 
-export const VERSION = '0.9';
-export const BUILD   = 'polish-pass';
+export const VERSION = '0.10';
+export const BUILD   = 'reader-tabs-filter';

@@ -9,6 +9,7 @@ import ledger     from '../modules/ledger.js';
 import documents  from '../modules/documents.js';
 import sweep      from '../modules/sweep.js';
 import vault      from '../modules/vault.js';
+import reader     from '../modules/reader.js';
 import { VERSION, BUILD } from './version.js';
 import { initPersistence, refreshUsage } from './persistence.js';
 import {
@@ -17,9 +18,10 @@ import {
   getRecent, clearRecent,
 } from './profile.js';
 import { toast } from './ui.js';
+import { getDailyQuote, getLang, setLang, bumpShuffle } from './quotes.js';
 
 // ↓↓↓ THE REGISTRY — edit this to add/remove icons ↓↓↓
-const MODULES = [ledger, documents, sweep, vault];
+const MODULES = [ledger, documents, reader, sweep, vault];
 // ↑↑↑ that's it — the launcher reads from here ↑↑↑
 
 let activeModule = null;
@@ -293,6 +295,8 @@ function showLauncher() {
         <p class="launcher__date">${escape(formatDateLong(new Date()))}</p>
       </div>
 
+      <div id="quote-banner"></div>
+
       <div id="launcher-recent"></div>
 
       <div class="launcher__sectionlabel">Modules</div>
@@ -300,10 +304,34 @@ function showLauncher() {
     </div>
   `;
 
+  paintQuote(view.querySelector('#quote-banner'));
   paintRecent(view.querySelector('#launcher-recent'));
 
   const grid = view.querySelector('#tilegrid');
   MODULES.forEach((mod, i) => grid.appendChild(buildTile(mod, i)));
+}
+
+function paintQuote(container) {
+  const q = getDailyQuote();
+  const isHi = q.lang === 'hi';
+  container.innerHTML = `
+    <div class="quote-card">
+      <div class="quote-card__head">
+        <span class="quote-card__label">DAILY · ${q.idx + 1}/${q.total}</span>
+        <span class="quote-card__actions">
+          <button class="quote-card__btn ${q.lang === 'en' ? 'is-active' : ''}" data-lang="en" type="button">EN</button>
+          <button class="quote-card__btn ${q.lang === 'hi' ? 'is-active' : ''}" data-lang="hi" type="button">हिं</button>
+          <button class="quote-card__btn quote-card__btn--shuffle" id="qshuffle" title="Reshuffle" type="button">↻</button>
+        </span>
+      </div>
+      <div class="quote-card__text ${isHi ? 'is-hi' : ''}">${escape(q.text)}</div>
+      <div class="quote-card__who">— ${escape(q.who)}</div>
+    </div>
+  `;
+  container.querySelectorAll('.quote-card__btn[data-lang]').forEach(b => {
+    b.onclick = () => { setLang(b.dataset.lang); paintQuote(container); };
+  });
+  container.querySelector('#qshuffle').onclick = () => { bumpShuffle(); paintQuote(container); };
 }
 
 function paintRecent(container) {
