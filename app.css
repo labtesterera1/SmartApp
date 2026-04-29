@@ -2400,3 +2400,174 @@ a { color: var(--lime); text-decoration: none; }
   font-size: 12px;
   margin-top: 80px;
 }
+
+/* ============================================================
+   v0.11 — Time-of-day art, name styles, quote border, reader btn
+   ============================================================ */
+
+/* New launcher top: greeting + art side-by-side on desktop, stacked on phone */
+.launcher__top {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-bottom: 8px;
+}
+.launcher__greeting {
+  /* (was previously .launcher__hello) */
+}
+.launcher__greeting h1 {
+  font-family: var(--serif);
+  font-size: 56px;
+  line-height: 0.95;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+.launcher__greeting .launcher__date,
+.launcher__greeting p {
+  margin-top: 10px;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+/* Time-of-day art panel */
+.launcher__art {
+  position: relative;
+  width: 100%;
+  height: 80px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--bg-soft);
+}
+.launcher__art svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.launcher__art-label {
+  position: absolute;
+  bottom: 6px;
+  left: 8px;
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--lime);
+  background: rgba(12, 11, 9, 0.55);
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid rgba(212, 255, 58, 0.3);
+}
+
+/* Desktop: side-by-side greeting + art, art ~36% */
+@media (min-width: 720px) {
+  .launcher__top {
+    flex-direction: row;
+    align-items: stretch;
+    gap: 18px;
+  }
+  .launcher__greeting { flex: 1; }
+  .launcher__art {
+    flex: 0 0 36%;
+    max-width: 320px;
+    height: auto;
+    min-height: 140px;
+  }
+  .launcher__greeting h1 { font-size: 72px; }
+}
+
+/* Name style presets (applied via .namestyle--<id>) */
+.namestyle {
+  display: inline-block;
+  transition: color 0.2s, font-style 0.2s;
+}
+.namestyle--default {
+  color: var(--lime);
+  font-family: var(--serif);
+  font-style: italic;
+}
+.namestyle--bold {
+  color: var(--ink);
+  font-family: var(--serif);
+  font-style: normal;
+  font-weight: 400;
+}
+.namestyle--amber {
+  color: #ffb066;
+  font-family: var(--serif);
+  font-style: italic;
+}
+.namestyle--mono {
+  color: var(--lime);
+  font-family: var(--mono);
+  font-style: normal;
+  font-weight: 700;
+  font-size: 0.78em;
+  letter-spacing: -0.01em;
+  vertical-align: 0.04em;
+}
+
+/* Style picker in Settings */
+.style-picker {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  width: 100%;
+}
+.style-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 10px 12px;
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s;
+}
+.style-chip:hover     { border-color: var(--lime-dim); }
+.style-chip.is-active { border-color: var(--lime); background: rgba(212, 255, 58, 0.05); }
+.style-chip__sample {
+  font-size: 22px !important;
+  line-height: 1.1;
+  pointer-events: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.style-chip__lbl {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  color: var(--ink-dim);
+  text-transform: uppercase;
+}
+.style-chip.is-active .style-chip__lbl { color: var(--lime); }
+
+/* Quote card — beefier border with corner brackets */
+.quote-card {
+  border: 1px solid var(--lime-dim);
+  background: var(--bg-tile);
+  background-image:
+    radial-gradient(circle at 0% 100%, rgba(212,255,58,0.06), transparent 55%);
+}
+.quote-card::before,
+.quote-card::after,
+.quote-card .quote-card__br1,
+.quote-card .quote-card__br2 {
+  content: "";
+  position: absolute;
+  width: 12px; height: 12px;
+  border: 1px solid var(--lime);
+  pointer-events: none;
+}
+.quote-card::before { top: 6px; left: 6px;  border-right: none; border-bottom: none; }
+.quote-card::after  { top: 6px; right: 6px; border-left: none;  border-bottom: none; }
+.quote-card .quote-card__br1 { bottom: 6px; left: 6px;  border-right: none; border-top: none; }
+.quote-card .quote-card__br2 { bottom: 6px; right: 6px; border-left: none;  border-top: none; }
