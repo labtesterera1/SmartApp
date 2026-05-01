@@ -2571,3 +2571,144 @@ a { color: var(--lime); text-decoration: none; }
 .quote-card::after  { top: 6px; right: 6px; border-left: none;  border-bottom: none; }
 .quote-card .quote-card__br1 { bottom: 6px; left: 6px;  border-right: none; border-top: none; }
 .quote-card .quote-card__br2 { bottom: 6px; right: 6px; border-left: none;  border-top: none; }
+
+/* ============================================================
+   v0.12 — final polish
+   ============================================================ */
+
+/* Top branding: SmartApp + by Nik (no version pill) */
+.topbar__id {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.topbar__brand {
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+}
+.topbar__by {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 12px;
+  color: var(--lime);
+  line-height: 1;
+}
+.topbar__ver { display: none; }   /* legacy class — hide if older HTML still has it */
+
+/* Banner image (uploaded) on launcher */
+.launcher__art--photo {
+  background: #000;
+}
+.launcher__art-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* Custom message card (replaces the daily quote) */
+.msg-card {
+  position: relative;
+  margin-bottom: 18px;
+  padding: 14px 16px 14px;
+  border: 1px solid var(--lime-dim);
+  border-radius: var(--radius);
+  background: var(--bg-tile);
+  background-image:
+    radial-gradient(circle at 0% 100%, rgba(212,255,58,0.05), transparent 55%);
+}
+.msg-card::before,
+.msg-card::after,
+.msg-card .msg-card__br1,
+.msg-card .msg-card__br2 {
+  content: "";
+  position: absolute;
+  width: 12px; height: 12px;
+  border: 1px solid var(--lime);
+  pointer-events: none;
+}
+.msg-card::before { top: 6px; left: 6px;  border-right: none; border-bottom: none; }
+.msg-card::after  { top: 6px; right: 6px; border-left: none;  border-bottom: none; }
+.msg-card__br1    { bottom: 6px; left: 6px;  border-right: none; border-top: none; }
+.msg-card__br2    { bottom: 6px; right: 6px; border-left: none;  border-top: none; }
+.msg-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.msg-card__label {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  color: var(--lime);
+  font-weight: 700;
+}
+.msg-card__btn {
+  padding: 3px 8px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--ink-dim);
+  font-family: var(--mono);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.msg-card__btn:hover { color: var(--lime); border-color: var(--lime-dim); }
+.msg-card__text {
+  font-family: var(--serif);
+  font-size: 18px;
+  line-height: 1.5;
+  color: var(--ink);
+  font-style: italic;
+}
+
+/* Empty-message prompt — invites user to write their own */
+.msg-empty {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin-bottom: 18px;
+  padding: 12px 14px;
+  background: transparent;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  color: var(--ink-dim);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: left;
+}
+.msg-empty:hover {
+  border-color: var(--lime-dim);
+  color: var(--lime);
+}
+.msg-empty__icon {
+  color: var(--lime);
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 18px;
+  line-height: 1;
+}
+
+/* Settings note inset (used inside cards as full-width note) */
+.set-row__note--inset {
+  padding: 10px 14px 6px;
+  border-top: 1px dashed var(--line-soft);
+}
+
+/* Time-art SVG: ensure no awkward horizontal cropping on phone */
+.launcher__art svg { object-fit: cover; }
