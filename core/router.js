@@ -19,6 +19,7 @@ import {
   getNameStyle, getNameStyleId, setNameStyleId, NAME_STYLES,
   getBanner, clearBanner, saveBannerFromFile,
   getBannerFit, setBannerFit,
+  getBannerPos, setBannerPos,
 } from './profile.js';
 import { toast } from './ui.js';
 import { getTodaysMessage, getMessages, setMessages, bumpShuffle, getSampleDefaults } from './messages.js';
@@ -201,9 +202,22 @@ async function renderSettings() {
             <button class="vault-tool-btn ${getBannerFit() === 'contain' ? 'is-active' : ''}" data-fit="contain" id="fit-contain">CONTAIN</button>
           </span>
         </div>
+        <div class="set-row">
+          <span class="set-row__k">POSITION</span>
+          <span class="set-row__v">
+            <div class="pos-picker">
+              ${['top','center','bottom','left','right'].map(p => `
+                <button class="pos-btn ${getBannerPos() === p ? 'is-active' : ''}" data-pos="${p}" type="button">
+                  ${p.toUpperCase()}
+                </button>
+              `).join('')}
+            </div>
+          </span>
+        </div>
         <div class="set-row__note set-row__note--inset">
-          <strong style="color:var(--lime);">FILL</strong> crops the image to fully cover the panel.
-          <strong style="color:var(--lime);">CONTAIN</strong> shows the whole image, may letterbox.
+          <strong style="color:var(--lime);">FILL</strong> crops to cover the panel.
+          <strong style="color:var(--lime);">CONTAIN</strong> shows the whole image (may letterbox).
+          <strong style="color:var(--lime);">POSITION</strong> picks which part of the image stays visible when cropped.
           Image compressed to ~800px JPEG on upload.
         </div>
       </div>
@@ -411,6 +425,16 @@ async function renderSettings() {
       toast(`✓ Fit mode: ${btn.dataset.fit.toUpperCase()}`);
     };
   });
+
+  // Position picker
+  view.querySelectorAll('[data-pos]').forEach(btn => {
+    btn.onclick = () => {
+      setBannerPos(btn.dataset.pos);
+      view.querySelectorAll('[data-pos]').forEach(b =>
+        b.classList.toggle('is-active', b === btn));
+      toast(`✓ Position: ${btn.dataset.pos.toUpperCase()}`);
+    };
+  });
 }
 
 /* ---------- Launcher ---------- */
@@ -432,7 +456,7 @@ function showLauncher() {
         </div>
         <div class="launcher__art ${getBanner() ? 'launcher__art--photo' : ''}" id="time-art" aria-hidden="true">
           ${getBanner()
-            ? `<img class="launcher__art-img launcher__art-img--${getBannerFit()}" src="${getBanner()}" alt="">`
+            ? `<img class="launcher__art-img launcher__art-img--${getBannerFit()} launcher__art-img--pos-${getBannerPos()}" src="${getBanner()}" alt="">`
             : getTimeArtSvg()}
           <span class="launcher__art-label">${escape(getBanner() ? 'YOURS' : getBandLabel())}</span>
         </div>

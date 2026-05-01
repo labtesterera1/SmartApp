@@ -11,6 +11,7 @@ const NAME_KEY   = 'smartapp_profile_name_v1';
 const STYLE_KEY  = 'smartapp_profile_style_v1';
 const BANNER_KEY = 'smartapp_banner_v1';
 const BANNER_FIT_KEY = 'smartapp_banner_fit_v1';
+const BANNER_POS_KEY = 'smartapp_banner_pos_v1';
 const RECENT_KEY = 'smartapp_recent_v1';
 const RECENT_MAX = 6;
 
@@ -32,6 +33,21 @@ export function getBannerFit() {
 export function setBannerFit(mode) {
   try {
     localStorage.setItem(BANNER_FIT_KEY, mode === 'contain' ? 'contain' : 'fill');
+  } catch {}
+}
+
+/** Banner position (which part of the image stays visible when cropped).
+ *  One of: 'top' | 'center' | 'bottom' | 'left' | 'right' */
+const VALID_POS = ['top', 'center', 'bottom', 'left', 'right'];
+export function getBannerPos() {
+  try {
+    const v = localStorage.getItem(BANNER_POS_KEY);
+    return VALID_POS.includes(v) ? v : 'center';
+  } catch { return 'center'; }
+}
+export function setBannerPos(pos) {
+  try {
+    if (VALID_POS.includes(pos)) localStorage.setItem(BANNER_POS_KEY, pos);
   } catch {}
 }
 /** Saves a compressed JPEG banner image (max 800px wide). */
