@@ -66,7 +66,7 @@ function renderList() {
   const accCount = _accounts.length;
   const urlCount = _urls.length;
   const list     = _tab === 'accounts' ? _accounts : _urls;
-  const showSearch = list.length >= 10;
+  const showSearch = list.length >= 5;
 
   const filtered = list.filter(item => {
     if (!_search) return true;

@@ -182,17 +182,33 @@ async function handleCreate() {
 }
 
 function renderUnlock() {
+  // Random suffix breaks browser autofill association
+  const fieldName = `vmpw_${Math.random().toString(36).slice(2, 10)}`;
   _root.innerHTML = `
     <div class="vault-pad">
       <div class="vault-pad__hint">VAULT LOCKED</div>
       <input type="password" class="vault-input" id="pw"
-             placeholder="Master password" autocomplete="current-password" autofocus>
+             name="${fieldName}"
+             placeholder="Master password"
+             autocomplete="off"
+             data-form-type="other"
+             data-lpignore="true"
+             data-1p-ignore="true"
+             autocorrect="off"
+             autocapitalize="off"
+             spellcheck="false"
+             value=""
+             autofocus>
       <div class="vault-err" id="err"></div>
       <button class="btn btn--primary vault-cta" id="unlock">UNLOCK</button>
     </div>
   `;
+  const inp = _root.querySelector('#pw');
+  // Defensive: kill anything autofill may have injected after render
+  setTimeout(() => { inp.value = ''; inp.focus(); }, 0);
+  setTimeout(() => { inp.value = ''; }, 120);
   _root.querySelector('#unlock').onclick = handleUnlock;
-  _root.querySelector('#pw').addEventListener('keydown', e => {
+  inp.addEventListener('keydown', e => {
     if (e.key === 'Enter') handleUnlock();
   });
 }

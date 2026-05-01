@@ -18,6 +18,7 @@ let _root = null;
 let _cache = [];
 let _editing = null;       // null | { id|null }
 let _readerOpen = false;   // for distraction-free reader
+let _search = '';
 
 export default {
   id: 'reader',
@@ -55,11 +56,27 @@ async function refreshCache() {
    ============================================================ */
 function renderList() {
   const total = _cache.length;
+  const filtered = _cache.filter(n => {
+    if (!_search) return true;
+    const hay = `${n.title || ''} ${n.body || ''}`.toLowerCase();
+    return hay.includes(_search.toLowerCase());
+  });
+  const showSearch = total >= 5;
+
   _root.innerHTML = `
     <div class="rd-bar">
       <span class="rd-bar__count">${total} NOTE${total === 1 ? '' : 'S'}</span>
     </div>
     <button class="btn btn--primary rd-add" id="add">+ NEW NOTE</button>
+
+    ${showSearch ? `
+      <div class="search-bar">
+        <input type="search" id="search" class="search-input"
+               placeholder="🔍 Search notes…" value="${esc(_search)}">
+        ${_search ? '<button class="search-clear" id="searchClear" type="button">×</button>' : ''}
+      </div>
+    ` : ''}
+
     <div class="rd-list">
       ${total === 0
         ? `<div class="empty-card">
@@ -73,12 +90,22 @@ function renderList() {
                <button class="empty-card__chip" id="empty-add">+ New note</button>
              </div>
            </div>`
-        : _cache.map(rowHtml).join('')}
+        : filtered.length === 0
+          ? `<div class="placeholder"><div class="placeholder__icon">·</div>No matches.</div>`
+          : filtered.map(rowHtml).join('')}
     </div>
   `;
   _root.querySelector('#add').onclick = () => { _editing = { id: null }; renderEditor(_editing); };
   const empty = _root.querySelector('#empty-add');
   if (empty) empty.onclick = () => { _editing = { id: null }; renderEditor(_editing); };
+
+  if (showSearch) {
+    const si = _root.querySelector('#search');
+    si.addEventListener('input', () => { _search = si.value; renderList(); setTimeout(() => si.focus(), 0); });
+    const sc = _root.querySelector('#searchClear');
+    if (sc) sc.onclick = () => { _search = ''; renderList(); };
+  }
+
   _root.querySelectorAll('.rd-row').forEach(r => {
     const id = r.dataset.id;
     r.querySelector('.rd-row__main').onclick = () => { _editing = { id }; renderEditor(_editing); };
