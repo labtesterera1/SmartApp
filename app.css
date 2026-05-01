@@ -2840,28 +2840,38 @@ a { color: var(--lime); text-decoration: none; }
 .pos-picker {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
-  gap: 6px;
+  gap: 4px;
   width: 100%;
+  flex: 1 1 100%;
+  min-width: 0;
 }
 .pos-btn {
-  padding: 8px 6px;
+  padding: 7px 2px;
   background: var(--bg-soft);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   color: var(--ink-dim);
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: 8px;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.04em;
   cursor: pointer;
   transition: all 0.12s;
   text-align: center;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .pos-btn:hover { color: var(--lime); border-color: var(--lime-dim); }
 .pos-btn.is-active {
   color: var(--lime);
   border-color: var(--lime);
   background: rgba(212, 255, 58, 0.08);
+}
+@media (min-width: 480px) {
+  .pos-btn { padding: 8px 6px; font-size: 9px; letter-spacing: 0.08em; }
+  .pos-picker { gap: 6px; }
 }
 
 /* Apply position to banner image — overrides the default center */
