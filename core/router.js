@@ -17,9 +17,10 @@ import {
   getDisplayName, setDisplayName,
   getRecent, clearRecent,
   getNameStyle, getNameStyleId, setNameStyleId, NAME_STYLES,
+  getBanner, clearBanner, saveBannerFromFile,
 } from './profile.js';
 import { toast } from './ui.js';
-import { getDailyQuote, getLang, setLang, bumpShuffle } from './quotes.js';
+import { getTodaysMessage, getMessages, setMessages, bumpShuffle, getSampleDefaults } from './messages.js';
 import { getTimeArtSvg, getBandLabel } from './timeart.js';
 
 // ↓↓↓ THE REGISTRY — edit this to add/remove icons ↓↓↓
@@ -66,8 +67,6 @@ function bindSettingsButton() {
 }
 
 function injectVersion() {
-  const top = document.getElementById('topbar-id');
-  if (top) top.innerHTML = `SMARTAPP <span class="topbar__ver">v${VERSION}</span>`;
   const bot = document.querySelector('.ruler__label');
   if (bot) bot.textContent = `v${VERSION} · ${BUILD}`;
 }
@@ -159,6 +158,43 @@ async function renderSettings() {
           <span class="set-row__v">
             <button class="vault-tool-btn" id="clear-recent">CLEAR ACTIVITY</button>
           </span>
+        </div>
+      </div>
+
+      <div class="set-card">
+        <div class="set-card__head">DAILY MESSAGES</div>
+        <div class="set-row__note set-row__note--inset">
+          One per line. The home screen rotates through these — one per day,
+          changes at midnight, or tap ↻ to advance manually.
+        </div>
+        <div style="padding: 0 14px 12px;">
+          <textarea id="msg-list" class="set-input" rows="6"
+                    style="width:100%;min-height:120px;line-height:1.6;"
+                    placeholder="One message per line"></textarea>
+          <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">
+            <button class="vault-tool-btn" id="save-msgs">SAVE MESSAGES</button>
+            <button class="vault-tool-btn" id="sample-msgs">USE SAMPLES</button>
+            <button class="vault-tool-btn" id="clear-msgs">CLEAR ALL</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="set-card">
+        <div class="set-card__head">HOME BANNER</div>
+        <div class="set-row">
+          <span class="set-row__k">SOURCE</span>
+          <span class="set-row__v" id="banner-status"></span>
+        </div>
+        <div class="set-row">
+          <span class="set-row__k">IMAGE</span>
+          <span class="set-row__v">
+            <button class="vault-tool-btn" id="upload-banner">UPLOAD</button>
+            <button class="vault-tool-btn" id="clear-banner">USE TIME-ART</button>
+            <input type="file" id="banner-input" accept="image/*" hidden>
+          </span>
+        </div>
+        <div class="set-row__note set-row__note--inset">
+          Upload your own banner to replace the time-of-day art. Compressed to ~800px JPEG.
         </div>
       </div>
 
@@ -304,6 +340,57 @@ async function renderSettings() {
     clearRecent();
     toast('✓ Activity cleared');
   };
+
+  // Messages
+  const msgList = view.querySelector('#msg-list');
+  msgList.value = getMessages().join('\n');
+  view.querySelector('#save-msgs').onclick = () => {
+    const lines = msgList.value.split('\n');
+    setMessages(lines);
+    toast(`✓ ${getMessages().length} message${getMessages().length === 1 ? '' : 's'} saved`);
+  };
+  view.querySelector('#sample-msgs').onclick = () => {
+    msgList.value = getSampleDefaults().join('\n');
+    toast('Samples loaded — tap SAVE to keep them');
+  };
+  view.querySelector('#clear-msgs').onclick = () => {
+    if (!confirm('Clear all daily messages?')) return;
+    setMessages([]);
+    msgList.value = '';
+    toast('✓ Messages cleared');
+  };
+
+  // Banner
+  const bannerStatusEl = view.querySelector('#banner-status');
+  const refreshBannerStatus = () => {
+    bannerStatusEl.innerHTML = getBanner()
+      ? '<span style="color:var(--lime);">Your image</span>'
+      : '<span style="color:var(--ink-dim);">Time-of-day art</span>';
+  };
+  refreshBannerStatus();
+  const bannerInput = view.querySelector('#banner-input');
+  view.querySelector('#upload-banner').onclick = () => bannerInput.click();
+  bannerInput.addEventListener('change', async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      await saveBannerFromFile(file);
+      refreshBannerStatus();
+      toast('✓ Banner saved');
+    } catch (err) {
+      toast('Banner failed: ' + err.message, 'err');
+    }
+  });
+  view.querySelector('#clear-banner').onclick = () => {
+    if (!getBanner()) {
+      toast('Already using time-of-day art', 'warn');
+      return;
+    }
+    clearBanner();
+    refreshBannerStatus();
+    toast('✓ Switched to time-of-day art');
+  };
 }
 
 /* ---------- Launcher ---------- */
@@ -323,13 +410,15 @@ function showLauncher() {
           <h1>${escape(greeting)}<br><em class="namestyle namestyle--${style.id}">${escape(name)}.</em></h1>
           <p class="launcher__date">${escape(formatDateLong(new Date()))}</p>
         </div>
-        <div class="launcher__art" id="time-art" aria-hidden="true">
-          ${getTimeArtSvg()}
-          <span class="launcher__art-label">${escape(getBandLabel())}</span>
+        <div class="launcher__art ${getBanner() ? 'launcher__art--photo' : ''}" id="time-art" aria-hidden="true">
+          ${getBanner()
+            ? `<img class="launcher__art-img" src="${getBanner()}" alt="">`
+            : getTimeArtSvg()}
+          <span class="launcher__art-label">${escape(getBanner() ? 'YOURS' : getBandLabel())}</span>
         </div>
       </div>
 
-      <div id="quote-banner"></div>
+      <div id="message-banner"></div>
 
       <div id="launcher-recent"></div>
 
@@ -338,35 +427,37 @@ function showLauncher() {
     </div>
   `;
 
-  paintQuote(view.querySelector('#quote-banner'));
+  paintMessage(view.querySelector('#message-banner'));
   paintRecent(view.querySelector('#launcher-recent'));
 
   const grid = view.querySelector('#tilegrid');
   MODULES.forEach((mod, i) => grid.appendChild(buildTile(mod, i)));
 }
 
-function paintQuote(container) {
-  const q = getDailyQuote();
-  const isHi = q.lang === 'hi';
+function paintMessage(container) {
+  const m = getTodaysMessage();
+  if (!m) {
+    // No messages saved — quiet placeholder hint that links to settings
+    container.innerHTML = `
+      <button class="msg-empty" id="msg-empty">
+        <span class="msg-empty__icon">✎</span>
+        <span class="msg-empty__text">Add your own daily messages — tap to set up</span>
+      </button>
+    `;
+    container.querySelector('#msg-empty').onclick = renderSettings;
+    return;
+  }
   container.innerHTML = `
-    <div class="quote-card">
-      <span class="quote-card__br1"></span><span class="quote-card__br2"></span>
-      <div class="quote-card__head">
-        <span class="quote-card__label">DAILY · ${q.idx + 1}/${q.total}</span>
-        <span class="quote-card__actions">
-          <button class="quote-card__btn ${q.lang === 'en' ? 'is-active' : ''}" data-lang="en" type="button">EN</button>
-          <button class="quote-card__btn ${q.lang === 'hi' ? 'is-active' : ''}" data-lang="hi" type="button">हिं</button>
-          <button class="quote-card__btn quote-card__btn--shuffle" id="qshuffle" title="Reshuffle" type="button">↻</button>
-        </span>
+    <div class="msg-card">
+      <span class="msg-card__br1"></span><span class="msg-card__br2"></span>
+      <div class="msg-card__head">
+        <span class="msg-card__label">MESSAGE · ${m.idx + 1}/${m.total}</span>
+        <button class="msg-card__btn" id="msg-shuffle" title="Next message" type="button">↻</button>
       </div>
-      <div class="quote-card__text ${isHi ? 'is-hi' : ''}">${escape(q.text)}</div>
-      <div class="quote-card__who">— ${escape(q.who)}</div>
+      <div class="msg-card__text">${escape(m.text)}</div>
     </div>
   `;
-  container.querySelectorAll('.quote-card__btn[data-lang]').forEach(b => {
-    b.onclick = () => { setLang(b.dataset.lang); paintQuote(container); };
-  });
-  container.querySelector('#qshuffle').onclick = () => { bumpShuffle(); paintQuote(container); };
+  container.querySelector('#msg-shuffle').onclick = () => { bumpShuffle(); paintMessage(container); };
 }
 
 function paintRecent(container) {

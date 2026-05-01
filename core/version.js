@@ -5,5 +5,5 @@
    Bump this on each meaningful release.
    ============================================================ */
 
-export const VERSION = '0.11';
-export const BUILD   = 'reader-art-style';
+export const VERSION = '0.12';
+export const BUILD   = 'final-polish';
