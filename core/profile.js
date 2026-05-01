@@ -10,6 +10,7 @@ const PIC_KEY    = 'smartapp_profile_pic_v1';
 const NAME_KEY   = 'smartapp_profile_name_v1';
 const STYLE_KEY  = 'smartapp_profile_style_v1';
 const BANNER_KEY = 'smartapp_banner_v1';
+const BANNER_FIT_KEY = 'smartapp_banner_fit_v1';
 const RECENT_KEY = 'smartapp_recent_v1';
 const RECENT_MAX = 6;
 
@@ -20,6 +21,18 @@ export function getBanner() {
 }
 export function clearBanner() {
   try { localStorage.removeItem(BANNER_KEY); } catch {}
+}
+/** 'fill' (cover, may crop) or 'contain' (whole image, may letterbox). */
+export function getBannerFit() {
+  try {
+    const v = localStorage.getItem(BANNER_FIT_KEY);
+    return v === 'contain' ? 'contain' : 'fill';
+  } catch { return 'fill'; }
+}
+export function setBannerFit(mode) {
+  try {
+    localStorage.setItem(BANNER_FIT_KEY, mode === 'contain' ? 'contain' : 'fill');
+  } catch {}
 }
 /** Saves a compressed JPEG banner image (max 800px wide). */
 export function saveBannerFromFile(file) {

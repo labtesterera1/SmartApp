@@ -5,5 +5,5 @@
    Bump this on each meaningful release.
    ============================================================ */
 
-export const VERSION = '0.12';
-export const BUILD   = 'final-polish';
+export const VERSION = '0.13';
+export const BUILD   = 'banner-branding-fix';

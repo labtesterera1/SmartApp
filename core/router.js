@@ -18,6 +18,7 @@ import {
   getRecent, clearRecent,
   getNameStyle, getNameStyleId, setNameStyleId, NAME_STYLES,
   getBanner, clearBanner, saveBannerFromFile,
+  getBannerFit, setBannerFit,
 } from './profile.js';
 import { toast } from './ui.js';
 import { getTodaysMessage, getMessages, setMessages, bumpShuffle, getSampleDefaults } from './messages.js';
@@ -193,8 +194,17 @@ async function renderSettings() {
             <input type="file" id="banner-input" accept="image/*" hidden>
           </span>
         </div>
+        <div class="set-row">
+          <span class="set-row__k">FIT</span>
+          <span class="set-row__v">
+            <button class="vault-tool-btn ${getBannerFit() === 'fill' ? 'is-active' : ''}" data-fit="fill" id="fit-fill">FILL</button>
+            <button class="vault-tool-btn ${getBannerFit() === 'contain' ? 'is-active' : ''}" data-fit="contain" id="fit-contain">CONTAIN</button>
+          </span>
+        </div>
         <div class="set-row__note set-row__note--inset">
-          Upload your own banner to replace the time-of-day art. Compressed to ~800px JPEG.
+          <strong style="color:var(--lime);">FILL</strong> crops the image to fully cover the panel.
+          <strong style="color:var(--lime);">CONTAIN</strong> shows the whole image, may letterbox.
+          Image compressed to ~800px JPEG on upload.
         </div>
       </div>
 
@@ -391,6 +401,16 @@ async function renderSettings() {
     refreshBannerStatus();
     toast('✓ Switched to time-of-day art');
   };
+
+  // Fit mode
+  view.querySelectorAll('[data-fit]').forEach(btn => {
+    btn.onclick = () => {
+      setBannerFit(btn.dataset.fit);
+      view.querySelectorAll('[data-fit]').forEach(b =>
+        b.classList.toggle('is-active', b === btn));
+      toast(`✓ Fit mode: ${btn.dataset.fit.toUpperCase()}`);
+    };
+  });
 }
 
 /* ---------- Launcher ---------- */
@@ -412,7 +432,7 @@ function showLauncher() {
         </div>
         <div class="launcher__art ${getBanner() ? 'launcher__art--photo' : ''}" id="time-art" aria-hidden="true">
           ${getBanner()
-            ? `<img class="launcher__art-img" src="${getBanner()}" alt="">`
+            ? `<img class="launcher__art-img launcher__art-img--${getBannerFit()}" src="${getBanner()}" alt="">`
             : getTimeArtSvg()}
           <span class="launcher__art-label">${escape(getBanner() ? 'YOURS' : getBandLabel())}</span>
         </div>
