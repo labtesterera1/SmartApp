@@ -2791,3 +2791,82 @@ a { color: var(--lime); text-decoration: none; }
     min-height: 0;
   }
 }
+
+/* ============================================================
+   v0.13.1 — spacing fix, corner-bracket fix, position picker
+   ============================================================ */
+
+/* Fix 1: ensure breathing room between BY NIK and HOME on phone */
+.topbar__left  { padding-right: 10px; }
+.topbar__right { padding-left: 10px; }
+.topbar__center {
+  padding: 0 8px;
+  white-space: nowrap;
+}
+
+/* Fix 2: corner-bracket spans on the message card weren't rendering
+   because empty <span>s have zero size by default. Make them blocks
+   with explicit dimensions. (The "content: ''" rule from before only
+   helps ::before / ::after — real spans need real geometry.) */
+.msg-card .msg-card__br1,
+.msg-card .msg-card__br2 {
+  display: block;
+  content: none;        /* don't try to use ::content on real elements */
+}
+.msg-card .msg-card__br1 {
+  bottom: 6px; left: 6px;
+  border-right: none; border-top: none;
+}
+.msg-card .msg-card__br2 {
+  bottom: 6px; right: 6px;
+  border-left: none; border-top: none;
+}
+
+/* Same fix for the quote-card pattern (still used in some places) */
+.quote-card .quote-card__br1,
+.quote-card .quote-card__br2 {
+  display: block;
+  content: none;
+}
+
+/* And the empty-card pattern */
+.empty-card .empty-card__br1,
+.empty-card .empty-card__br2 {
+  display: block;
+  content: none;
+}
+
+/* Fix 3: image position picker — 5 small buttons */
+.pos-picker {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+  width: 100%;
+}
+.pos-btn {
+  padding: 8px 6px;
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--ink-dim);
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: all 0.12s;
+  text-align: center;
+}
+.pos-btn:hover { color: var(--lime); border-color: var(--lime-dim); }
+.pos-btn.is-active {
+  color: var(--lime);
+  border-color: var(--lime);
+  background: rgba(212, 255, 58, 0.08);
+}
+
+/* Apply position to banner image — overrides the default center */
+.launcher__art-img--pos-top    { object-position: center top !important; }
+.launcher__art-img--pos-center { object-position: center center !important; }
+.launcher__art-img--pos-bottom { object-position: center bottom !important; }
+.launcher__art-img--pos-left   { object-position: left center !important; }
+.launcher__art-img--pos-right  { object-position: right center !important; }
