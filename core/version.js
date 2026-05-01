@@ -5,5 +5,5 @@
    Bump this on each meaningful release.
    ============================================================ */
 
-export const VERSION = '0.13.1';
-export const BUILD   = 'spacing-corner-position';
+export const VERSION = '0.13.2';
+export const BUILD   = 'phone-trim';

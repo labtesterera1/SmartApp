@@ -69,8 +69,8 @@ function bindSettingsButton() {
 }
 
 function injectVersion() {
-  const bot = document.querySelector('.ruler__label');
-  if (bot) bot.textContent = `v${VERSION} · ${BUILD}`;
+  // Version now lives only in Settings → APP card.
+  // (Removed from the bottom ruler in v0.13.2 for a cleaner footer.)
 }
 
 /* ---------- Avatar ---------- */
@@ -457,8 +457,7 @@ function showLauncher() {
         <div class="launcher__art ${getBanner() ? 'launcher__art--photo' : ''}" id="time-art" aria-hidden="true">
           ${getBanner()
             ? `<img class="launcher__art-img launcher__art-img--${getBannerFit()} launcher__art-img--pos-${getBannerPos()}" src="${getBanner()}" alt="">`
-            : getTimeArtSvg()}
-          <span class="launcher__art-label">${escape(getBanner() ? 'YOURS' : getBandLabel())}</span>
+            : `${getTimeArtSvg()}<span class="launcher__art-label">${escape(getBandLabel())}</span>`}
         </div>
       </div>
 
