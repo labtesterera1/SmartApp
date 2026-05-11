@@ -12,6 +12,7 @@
 import { db } from '../core/storage.js';
 import { toast } from '../core/ui.js';
 import { recordActivity } from '../core/profile.js';
+import { markBackupNow } from '../core/backup.js';
 
 const STORE = 'documents';
 const VIEW_MODE_KEY = 'smartapp_dh_view_v1';   // 'grid' | 'list'
@@ -581,6 +582,7 @@ async function exportDocuments() {
     a.click();
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 1500);
+    markBackupNow();
     toast(`✓ Exported ${items.length} file${items.length === 1 ? '' : 's'}`);
   } catch (err) {
     console.error(err);

@@ -12,6 +12,7 @@ import { recordActivity } from '../core/profile.js';
 import {
   downloadJson, readJsonFromFile, timestampStr,
   wrap, unwrap, askMergeOrReplace, mergeById,
+  markBackupNow,
 } from '../core/backup.js';
 
 const STORE = 'reader_notes';
@@ -459,6 +460,7 @@ async function exportReader() {
   try {
     const payload = { notes: _cache };
     downloadJson(`reader-${timestampStr()}-${_cache.length}.json`, wrap('reader', payload));
+    markBackupNow();
     toast(`✓ Exported ${_cache.length} notes`);
   } catch (err) {
     toast('Export failed: ' + err.message, 'err');

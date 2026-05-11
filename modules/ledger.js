@@ -14,6 +14,7 @@ import { openReaderOverlay } from '../core/reader-overlay.js';
 import {
   downloadJson, readJsonFromFile, timestampStr,
   wrap, unwrap, askMergeOrReplace, mergeById,
+  markBackupNow,
 } from '../core/backup.js';
 
 const STORE_ACC  = 'signupkit';
@@ -546,6 +547,7 @@ async function exportSignupKit() {
     };
     const counts = `${_accounts.length}acc-${_urls.length}url`;
     downloadJson(`signupkit-${timestampStr()}-${counts}.json`, wrap('signupkit', payload));
+    markBackupNow();
     toast(`✓ Exported ${_accounts.length} accounts, ${_urls.length} URLs`);
   } catch (err) {
     toast('Export failed: ' + err.message, 'err');
