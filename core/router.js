@@ -31,6 +31,7 @@ import {
   markBackupNow, getDaysSinceBackup, shouldShowBackupReminder, dismissBackupReminder,
   blobToBase64, base64ToBlob,
   askLightOrFull, classifySmartAppFile, compareVersions,
+  dedupByContent, SIG,
 } from './backup.js';
 
 // ↓↓↓ THE REGISTRY — edit this to add/remove icons ↓↓↓
@@ -866,14 +867,20 @@ async function applySignupKit({ accounts, urls }, choice) {
     for (const u of curU) await db.delete('signup_urls', u.id);
     for (const a of accounts) await db.put('signupkit', a);
     for (const u of urls)     await db.put('signup_urls', u);
-  } else {
-    const curA = await db.getAll('signupkit');
-    const curU = await db.getAll('signup_urls');
-    const mergedA = mergeById(curA, accounts);
-    const mergedU = mergeById(curU, urls);
-    for (const a of mergedA) await db.put('signupkit', a);
-    for (const u of mergedU) await db.put('signup_urls', u);
+    return;
   }
+  // Merge — newer wins per ID, then content-dedup catches drifted IDs
+  const curA = await db.getAll('signupkit');
+  const curU = await db.getAll('signup_urls');
+  const mergedA = mergeById(curA, accounts);
+  const mergedU = mergeById(curU, urls);
+  const dedupA = dedupByContent(mergedA, SIG.signupkit);
+  const dedupU = dedupByContent(mergedU, SIG.signup_urls);
+  // Delete stale rows from IDB so they don't reappear
+  for (const a of dedupA.removed) await db.delete('signupkit', a.id);
+  for (const u of dedupU.removed) await db.delete('signup_urls', u.id);
+  for (const a of dedupA.kept)    await db.put('signupkit', a);
+  for (const u of dedupU.kept)    await db.put('signup_urls', u);
 }
 
 async function applyReader(incoming, choice) {
@@ -881,11 +888,13 @@ async function applyReader(incoming, choice) {
     const cur = await db.getAll('reader_notes');
     for (const n of cur) await db.delete('reader_notes', n.id);
     for (const n of incoming) await db.put('reader_notes', n);
-  } else {
-    const cur = await db.getAll('reader_notes');
-    const merged = mergeById(cur, incoming);
-    for (const n of merged) await db.put('reader_notes', n);
+    return;
   }
+  const cur = await db.getAll('reader_notes');
+  const merged = mergeById(cur, incoming);
+  const dedup = dedupByContent(merged, SIG.reader);
+  for (const n of dedup.removed) await db.delete('reader_notes', n.id);
+  for (const n of dedup.kept)    await db.put('reader_notes', n);
 }
 
 async function applyDocuments(incoming, choice, hasBlobs) {
@@ -895,7 +904,6 @@ async function applyDocuments(incoming, choice, hasBlobs) {
     if (hasBlobs && data && rest.mime) {
       return { ...rest, blob: base64ToBlob(data, rest.mime) };
     }
-    // Metadata-only — keep without blob (Hub will show without preview)
     return rest;
   });
 
@@ -903,26 +911,29 @@ async function applyDocuments(incoming, choice, hasBlobs) {
     const cur = await db.getAll('documents');
     for (const d of cur) await db.delete('documents', d.id);
     for (const d of restored) await db.put('documents', d);
-  } else {
-    // Merge documents by ID — newer wins on createdAt/updatedAt
-    const cur = await db.getAll('documents');
-    const map = new Map();
-    cur.forEach(d => map.set(d.id, d));
-    restored.forEach(d => {
-      const existing = map.get(d.id);
-      if (!existing) map.set(d.id, d);
-      else {
-        const a = existing.updatedAt || existing.createdAt || 0;
-        const b = d.updatedAt || d.createdAt || 0;
-        if (b > a) {
-          // If incoming has no blob but existing does, preserve the existing blob
-          if (!d.blob && existing.blob) d.blob = existing.blob;
-          map.set(d.id, d);
-        }
-      }
-    });
-    for (const d of map.values()) await db.put('documents', d);
+    return;
   }
+  // Merge documents by ID — newer wins on createdAt/updatedAt
+  const cur = await db.getAll('documents');
+  const map = new Map();
+  cur.forEach(d => map.set(d.id, d));
+  restored.forEach(d => {
+    const existing = map.get(d.id);
+    if (!existing) map.set(d.id, d);
+    else {
+      const a = existing.updatedAt || existing.createdAt || 0;
+      const b = d.updatedAt || d.createdAt || 0;
+      if (b > a) {
+        // If incoming has no blob but existing does, preserve the existing blob
+        if (!d.blob && existing.blob) d.blob = existing.blob;
+        map.set(d.id, d);
+      }
+    }
+  });
+  const merged = Array.from(map.values());
+  const dedup = dedupByContent(merged, SIG.documents);
+  for (const d of dedup.removed) await db.delete('documents', d.id);
+  for (const d of dedup.kept)    await db.put('documents', d);
 }
 
 function applySettings(payload) {

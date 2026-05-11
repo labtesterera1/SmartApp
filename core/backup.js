@@ -181,6 +181,80 @@ export function mergeById(current, incoming) {
   return Array.from(map.values());
 }
 
+/* ---------- Content-based dedup ----------
+   After an ID-merge, two records may still be content-identical with
+   different IDs (e.g. user re-imported a file whose IDs drifted from the
+   ones already in IDB, perhaps because of cross-device usage or legacy
+   data). This finds clusters of records with the same `signature(rec)`
+   and keeps only the newest in each cluster.
+
+   Returns { kept: [...], removed: [...] }.
+
+   Callers use `removed` to delete the stale rows from IDB. */
+export function dedupByContent(records, signatureFn) {
+  const clusters = new Map();   // sig → [records]
+  (records || []).forEach(rec => {
+    let sig;
+    try { sig = signatureFn(rec); }
+    catch { sig = null; }
+    if (!sig) {
+      // Untouchable — no signature → don't dedup
+      const key = `__nosig_${rec.id || Math.random()}`;
+      clusters.set(key, [rec]);
+      return;
+    }
+    const list = clusters.get(sig) || [];
+    list.push(rec);
+    clusters.set(sig, list);
+  });
+
+  const kept = [];
+  const removed = [];
+  for (const list of clusters.values()) {
+    if (list.length === 1) { kept.push(list[0]); continue; }
+    // Sort by recency, keep newest
+    list.sort((a, b) => {
+      const ta = a.updatedAt || a.createdAt || 0;
+      const tb = b.updatedAt || b.createdAt || 0;
+      return tb - ta;
+    });
+    kept.push(list[0]);
+    for (let i = 1; i < list.length; i++) removed.push(list[i]);
+  }
+  return { kept, removed };
+}
+
+/* ---------- Signature builders for each module ---------- */
+export const SIG = {
+  signupkit: (a) => {
+    const u = (a.username || '').trim().toLowerCase();
+    const d = (a.domain || '').trim().toLowerCase();
+    const dc = (a.domainCustom || '').trim().toLowerCase();
+    const fn = (a.firstName || '').trim().toLowerCase();
+    const ln = (a.lastName || '').trim().toLowerCase();
+    if (!u && !fn && !ln) return null;   // not safe to dedup
+    return `acc::${u}::${d || dc}::${fn}::${ln}`;
+  },
+  signup_urls: (u) => {
+    const name = (u.name || '').trim().toLowerCase();
+    const url = (u.url || '').trim().toLowerCase();
+    if (!url && !name) return null;
+    return `url::${name}::${url}`;
+  },
+  reader: (n) => {
+    const title = (n.title || '').trim().toLowerCase();
+    const body = (n.body || '').trim().slice(0, 120).toLowerCase();
+    if (!title && !body) return null;
+    return `note::${title}::${body}`;
+  },
+  documents: (d) => {
+    const name = (d.name || '').trim().toLowerCase();
+    const size = d.originalSize || d.size || 0;
+    if (!name) return null;
+    return `doc::${name}::${size}`;
+  },
+};
+
 /* ---------- Helpers ---------- */
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({
