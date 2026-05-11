@@ -3041,3 +3041,37 @@ a { color: var(--lime); text-decoration: none; }
   color: var(--ink-dim);
 }
 .reminder-toast__act--dim:hover { color: var(--ink); }
+
+/* ============================================================
+   v0.14.2 — vault password row variants
+   ============================================================ */
+
+/* Unlock screen — password input + reveal eye */
+.vault-pwrow--unlock {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+  margin-bottom: 14px;
+}
+.vault-pwrow--unlock .vault-input {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+/* Inside the bk-prompt import modal */
+.vault-pwrow--prompt {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+.vault-pwrow--prompt .vault-input {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+/* Reveal-eye visual state */
+.vault-pwrow__btn.is-active {
+  color: var(--lime);
+  border-color: var(--lime);
+  background: rgba(212, 255, 58, 0.08);
+}
