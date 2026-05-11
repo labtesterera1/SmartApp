@@ -11,6 +11,10 @@ import { db } from '../core/storage.js';
 import { toast } from '../core/ui.js';
 import { recordActivity } from '../core/profile.js';
 import { openReaderOverlay } from '../core/reader-overlay.js';
+import {
+  downloadJson, readJsonFromFile, timestampStr,
+  wrap, unwrap, askMergeOrReplace, mergeById,
+} from '../core/backup.js';
 
 const STORE_ACC  = 'signupkit';
 const STORE_URL  = 'signup_urls';
@@ -83,6 +87,12 @@ function renderList() {
       </button>
     </div>
 
+    <div class="vault-tools">
+      <button class="vault-tool-btn" id="exportBtn">⬇ EXPORT BACKUP</button>
+      <button class="vault-tool-btn" id="importBtn">⬆ IMPORT BACKUP</button>
+      <input type="file" id="importFile" accept=".json,application/json" hidden>
+    </div>
+
     <button class="btn btn--primary su-add" id="add">
       ${_tab === 'accounts' ? '+ ADD ACCOUNT' : '+ ADD URL'}
     </button>
@@ -112,6 +122,11 @@ function renderList() {
       renderList();
     };
   });
+
+  // Export / Import
+  _root.querySelector('#exportBtn').onclick = exportSignupKit;
+  _root.querySelector('#importBtn').onclick = () => _root.querySelector('#importFile').click();
+  _root.querySelector('#importFile').onchange = handleImport;
 
   // Add new
   _root.querySelector('#add').onclick = () => {
@@ -519,6 +534,62 @@ async function deleteEntry(entry, isUrl) {
 }
 
 function backToList() { _editing = null; renderList(); }
+
+/* ============================================================
+   Export / Import
+   ============================================================ */
+async function exportSignupKit() {
+  try {
+    const payload = {
+      accounts: _accounts,
+      urls: _urls,
+    };
+    const counts = `${_accounts.length}acc-${_urls.length}url`;
+    downloadJson(`signupkit-${timestampStr()}-${counts}.json`, wrap('signupkit', payload));
+    toast(`✓ Exported ${_accounts.length} accounts, ${_urls.length} URLs`);
+  } catch (err) {
+    toast('Export failed: ' + err.message, 'err');
+  }
+}
+
+async function handleImport(e) {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  try {
+    const obj = await readJsonFromFile(file);
+    const payload = unwrap(obj, 'signupkit');
+    const accounts = Array.isArray(payload.accounts) ? payload.accounts : [];
+    const urls = Array.isArray(payload.urls) ? payload.urls : [];
+
+    const choice = await askMergeOrReplace('Sign-Up Kit', {
+      current: `${_accounts.length} acc, ${_urls.length} URL`,
+      incoming: `${accounts.length} acc, ${urls.length} URL`,
+    });
+    if (!choice) return;
+
+    if (choice === 'replace') {
+      if (!confirm('Delete ALL current accounts and URLs, then load from backup?')) return;
+      // Clear current
+      for (const a of _accounts) await db.delete(STORE_ACC, a.id);
+      for (const u of _urls)     await db.delete(STORE_URL, u.id);
+      // Load backup
+      for (const a of accounts) await db.put(STORE_ACC, a);
+      for (const u of urls)     await db.put(STORE_URL, u);
+    } else {
+      // Merge — newer wins per ID
+      const mergedAccounts = mergeById(_accounts, accounts);
+      const mergedUrls     = mergeById(_urls, urls);
+      for (const a of mergedAccounts) await db.put(STORE_ACC, a);
+      for (const u of mergedUrls)     await db.put(STORE_URL, u);
+    }
+    await refreshCache();
+    renderList();
+    toast(`✓ Imported (${choice})`);
+  } catch (err) {
+    toast('Import failed: ' + err.message, 'err');
+  }
+}
 
 /* ============================================================
    Helpers

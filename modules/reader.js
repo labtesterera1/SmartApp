@@ -9,6 +9,10 @@
 import { db } from '../core/storage.js';
 import { toast } from '../core/ui.js';
 import { recordActivity } from '../core/profile.js';
+import {
+  downloadJson, readJsonFromFile, timestampStr,
+  wrap, unwrap, askMergeOrReplace, mergeById,
+} from '../core/backup.js';
 
 const STORE = 'reader_notes';
 const MAX_IMG_DIM = 1600;
@@ -67,6 +71,13 @@ function renderList() {
     <div class="rd-bar">
       <span class="rd-bar__count">${total} NOTE${total === 1 ? '' : 'S'}</span>
     </div>
+
+    <div class="vault-tools">
+      <button class="vault-tool-btn" id="exportBtn">⬇ EXPORT BACKUP</button>
+      <button class="vault-tool-btn" id="importBtn">⬆ IMPORT BACKUP</button>
+      <input type="file" id="importFile" accept=".json,application/json" hidden>
+    </div>
+
     <button class="btn btn--primary rd-add" id="add">+ NEW NOTE</button>
 
     ${showSearch ? `
@@ -98,6 +109,11 @@ function renderList() {
   _root.querySelector('#add').onclick = () => { _editing = { id: null }; renderEditor(_editing); };
   const empty = _root.querySelector('#empty-add');
   if (empty) empty.onclick = () => { _editing = { id: null }; renderEditor(_editing); };
+
+  // Export / Import
+  _root.querySelector('#exportBtn').onclick = exportReader;
+  _root.querySelector('#importBtn').onclick = () => _root.querySelector('#importFile').click();
+  _root.querySelector('#importFile').onchange = handleImport;
 
   if (showSearch) {
     const si = _root.querySelector('#search');
@@ -435,6 +451,50 @@ async function deleteNote(note) {
 }
 
 function backToList() { _editing = null; renderList(); }
+
+/* ============================================================
+   Export / Import
+   ============================================================ */
+async function exportReader() {
+  try {
+    const payload = { notes: _cache };
+    downloadJson(`reader-${timestampStr()}-${_cache.length}.json`, wrap('reader', payload));
+    toast(`✓ Exported ${_cache.length} notes`);
+  } catch (err) {
+    toast('Export failed: ' + err.message, 'err');
+  }
+}
+
+async function handleImport(e) {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  try {
+    const obj = await readJsonFromFile(file);
+    const payload = unwrap(obj, 'reader');
+    const incoming = Array.isArray(payload.notes) ? payload.notes : [];
+
+    const choice = await askMergeOrReplace('Reader Notes', {
+      current: _cache.length,
+      incoming: incoming.length,
+    });
+    if (!choice) return;
+
+    if (choice === 'replace') {
+      if (!confirm('Delete ALL current notes, then load from backup?')) return;
+      for (const n of _cache) await db.delete(STORE, n.id);
+      for (const n of incoming) await db.put(STORE, n);
+    } else {
+      const merged = mergeById(_cache, incoming);
+      for (const n of merged) await db.put(STORE, n);
+    }
+    await refreshCache();
+    renderList();
+    toast(`✓ Imported (${choice})`);
+  } catch (err) {
+    toast('Import failed: ' + err.message, 'err');
+  }
+}
 
 /* ============================================================
    Reader (full-screen distraction-free reading)
