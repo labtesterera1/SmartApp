@@ -2941,3 +2941,103 @@ a { color: var(--lime); text-decoration: none; }
   padding: 0 16px 16px;
 }
 .bk-prompt__cancel { background: transparent; color: var(--ink-dim); }
+
+/* ============================================================
+   v0.14.1 — heartbeat + reminder toast
+   ============================================================ */
+
+/* Heartbeat dot in topbar */
+.heartbeat {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  cursor: pointer;
+  padding: 0;
+  transition: all 0.15s;
+}
+.heartbeat:hover { border-color: var(--lime-dim); }
+.heartbeat__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+  display: block;
+}
+.heartbeat.is-ok    .heartbeat__dot {
+  background: var(--lime);
+  box-shadow: 0 0 6px rgba(212, 255, 58, 0.6);
+}
+.heartbeat.is-warn  .heartbeat__dot {
+  background: var(--warn);
+  box-shadow: 0 0 6px rgba(255, 122, 58, 0.6);
+  animation: hb-pulse 1.8s ease-in-out infinite;
+}
+.heartbeat.is-unknown .heartbeat__dot {
+  background: var(--ink-faint);
+}
+@keyframes hb-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.6; transform: scale(1.2); }
+}
+.topbar__right { gap: 8px; display: inline-flex; align-items: center; }
+
+/* Backup reminder toast — top of screen, not center */
+.reminder-toast {
+  position: fixed;
+  top: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px 8px 12px;
+  background: var(--bg-tile);
+  border: 1px solid var(--warn);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.4);
+  max-width: calc(100vw - 32px);
+  font-family: var(--mono);
+  font-size: 11px;
+  animation: rt-slide 0.25s ease;
+}
+@keyframes rt-slide {
+  from { opacity: 0; transform: translate(-50%, -10px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+.reminder-toast__icon {
+  color: var(--warn);
+  font-size: 14px;
+  line-height: 1;
+}
+.reminder-toast__msg {
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+.reminder-toast__act {
+  padding: 5px 9px;
+  background: transparent;
+  border: 1px solid var(--lime-dim);
+  border-radius: 3px;
+  color: var(--lime);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.reminder-toast__act:hover { background: rgba(212, 255, 58, 0.08); }
+.reminder-toast__act--dim {
+  border-color: var(--line);
+  color: var(--ink-dim);
+}
+.reminder-toast__act--dim:hover { color: var(--ink); }
