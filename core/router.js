@@ -24,6 +24,11 @@ import {
 import { toast } from './ui.js';
 import { getTodaysMessage, getMessages, setMessages, bumpShuffle, getSampleDefaults } from './messages.js';
 import { getTimeArtSvg, getBandLabel } from './timeart.js';
+import { db } from './storage.js';
+import {
+  downloadJson, readJsonFromFile, triggerDownload, timestampStr,
+  wrap, unwrap, askMergeOrReplace, mergeById,
+} from './backup.js';
 
 // ↓↓↓ THE REGISTRY — edit this to add/remove icons ↓↓↓
 const MODULES = [ledger, documents, reader, sweep, vault];
@@ -223,6 +228,28 @@ async function renderSettings() {
       </div>
 
       <div class="set-card">
+        <div class="set-card__head">BACKUP &amp; RESTORE</div>
+        <div class="set-row">
+          <span class="set-row__k">SETTINGS</span>
+          <span class="set-row__v">
+            <button class="vault-tool-btn" id="export-settings">⬇ EXPORT</button>
+            <button class="vault-tool-btn" id="import-settings">⬆ IMPORT</button>
+            <input type="file" id="import-settings-file" accept=".json,application/json" hidden>
+          </span>
+        </div>
+        <div class="set-row">
+          <span class="set-row__k">EVERYTHING</span>
+          <span class="set-row__v">
+            <button class="vault-tool-btn" id="export-all">⬇ EXPORT ALL (.zip)</button>
+          </span>
+        </div>
+        <div class="set-row__note set-row__note--inset">
+          <strong style="color:var(--lime);">SETTINGS</strong> = name, banner, daily messages, style preset.<br>
+          <strong style="color:var(--lime);">EXPORT ALL</strong> bundles every module's data (except Vault — export Vault separately so the master password stays only in your head). One zip per backup. Save regularly.
+        </div>
+      </div>
+
+      <div class="set-card">
         <div class="set-card__head">APP</div>
         <div class="set-row">
           <span class="set-row__k">VERSION</span>
@@ -324,31 +351,52 @@ async function renderSettings() {
     };
   }
 
-  // Storage card
+  // Storage card — enhanced diagnostic
   const storageEl = view.querySelector('#storage-status');
   const status = await refreshUsage();
-  const persistedLabel = status.persisted === true
-    ? `<span style="color:var(--lime);">✓ Persistent</span>`
-    : status.persisted === false
-      ? `<span style="color:var(--warn);">Temporary</span>`
-      : `<span style="color:var(--ink-dim);">Unknown</span>`;
-  const usedMB  = (status.usage / (1024 * 1024)).toFixed(1);
-  const quotaMB = (status.quota / (1024 * 1024)).toFixed(0);
+  const diag = diagnoseStorage(status);
   storageEl.innerHTML = `
     <div class="set-row">
+      <span class="set-row__k">BROWSER</span>
+      <span class="set-row__v">${diag.browser}</span>
+    </div>
+    <div class="set-row">
       <span class="set-row__k">MODE</span>
-      <span class="set-row__v">${persistedLabel}</span>
+      <span class="set-row__v">${diag.modeLabel}</span>
     </div>
     <div class="set-row">
       <span class="set-row__k">USED</span>
-      <span class="set-row__v">${usedMB} MB / ${quotaMB} MB</span>
+      <span class="set-row__v">${(status.usage / (1024 * 1024)).toFixed(1)} MB / ${(status.quota / (1024 * 1024)).toFixed(0)} MB</span>
     </div>
-    <div class="set-row__note">
-      ${status.persisted === true
-        ? 'Browser cache clearing will not wipe your data. "Clear all site data" still will — keep export backups.'
-        : 'Storage may be evicted under pressure. Use Export Backup in Vault and Document Hub for safety.'}
+    <div class="set-row">
+      <span class="set-row__k">PWA</span>
+      <span class="set-row__v">${diag.pwaLabel}</span>
     </div>
+    <div class="set-row__note set-row__note--inset">
+      ${diag.advice}
+    </div>
+    ${diag.showRetry ? `
+      <div style="padding: 0 14px 12px;">
+        <button class="vault-tool-btn" id="retry-persist">↻ REQUEST PERSISTENT AGAIN</button>
+      </div>
+    ` : ''}
   `;
+
+  if (diag.showRetry) {
+    view.querySelector('#retry-persist').onclick = async () => {
+      try {
+        if (navigator.storage && navigator.storage.persist) {
+          const granted = await navigator.storage.persist();
+          toast(granted ? '✓ Persistent granted' : 'Browser denied persistent mode', granted ? 'ok' : 'warn');
+          renderSettings();
+        } else {
+          toast('Storage API not supported', 'err');
+        }
+      } catch (err) {
+        toast('Request failed: ' + err.message, 'err');
+      }
+    };
+  }
 
   // Profile actions
   view.querySelector('#set-pic').onclick = () =>
@@ -435,6 +483,163 @@ async function renderSettings() {
       toast(`✓ Position: ${btn.dataset.pos.toUpperCase()}`);
     };
   });
+
+  // Backup & Restore — Settings export/import
+  view.querySelector('#export-settings').onclick = exportSettings;
+  view.querySelector('#import-settings').onclick = () =>
+    view.querySelector('#import-settings-file').click();
+  view.querySelector('#import-settings-file').onchange = handleImportSettings;
+  view.querySelector('#export-all').onclick = exportEverything;
+}
+
+/* ---------- Settings export / import ---------- */
+function exportSettings() {
+  try {
+    const payload = {
+      displayName: getDisplayName(),
+      nameStyleId: getNameStyleId(),
+      banner: getBanner(),
+      bannerFit: getBannerFit(),
+      bannerPos: getBannerPos(),
+      profilePic: getProfilePic(),
+      messages: getMessages(),
+    };
+    downloadJson(`settings-${timestampStr()}.json`, wrap('settings', payload));
+    toast('✓ Settings exported');
+  } catch (err) {
+    toast('Export failed: ' + err.message, 'err');
+  }
+}
+
+async function handleImportSettings(e) {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  try {
+    const obj = await readJsonFromFile(file);
+    const payload = unwrap(obj, 'settings');
+    if (!confirm('Replace current settings with values from this backup?')) return;
+    if (typeof payload.displayName === 'string') setDisplayName(payload.displayName);
+    if (typeof payload.nameStyleId === 'string') setNameStyleId(payload.nameStyleId);
+    if (typeof payload.bannerFit === 'string') setBannerFit(payload.bannerFit);
+    if (typeof payload.bannerPos === 'string') setBannerPos(payload.bannerPos);
+    if (typeof payload.banner === 'string' && payload.banner.startsWith('data:image')) {
+      try { localStorage.setItem('smartapp_banner_v1', payload.banner); } catch {}
+    }
+    if (typeof payload.profilePic === 'string' && payload.profilePic.startsWith('data:image')) {
+      try { localStorage.setItem('smartapp_profile_pic_v1', payload.profilePic); } catch {}
+    }
+    if (Array.isArray(payload.messages)) setMessages(payload.messages);
+    paintAvatar();
+    renderSettings();
+    toast('✓ Settings imported');
+  } catch (err) {
+    toast('Import failed: ' + err.message, 'err');
+  }
+}
+
+/* ---------- Export Everything ---------- */
+async function exportEverything() {
+  try {
+    toast('Bundling backup…');
+
+    // Pull current data from each store directly (the modules cache it but we
+    // can't assume any module is rendered right now).
+    const [accounts, urls, notes, documents] = await Promise.all([
+      db.getAll('signupkit'),
+      db.getAll('signup_urls'),
+      db.getAll('reader_notes'),
+      db.getAll('documents'),
+    ]);
+
+    // Documents may contain Blob objects that JSON.stringify can't serialize.
+    // Strip the blobs — metadata only — so the zip stays small and JSON-safe.
+    const documentsMeta = documents.map(d => {
+      const { blob, ...rest } = d;
+      return { ...rest, _blobOmitted: !!blob };
+    });
+
+    const settingsPayload = {
+      displayName: getDisplayName(),
+      nameStyleId: getNameStyleId(),
+      banner: getBanner(),
+      bannerFit: getBannerFit(),
+      bannerPos: getBannerPos(),
+      profilePic: getProfilePic(),
+      messages: getMessages(),
+    };
+
+    // Build files in JSZip-style manually (we have no JSZip dependency, but
+    // for our purposes a single JSON file with all parts embedded is simpler
+    // and the user can still extract each module).
+    const bundle = {
+      app: 'smartapp',
+      version: VERSION,
+      exportedAt: new Date().toISOString(),
+      kind: 'full-backup',
+      modules: {
+        signupkit: wrap('signupkit', { accounts, urls }),
+        reader:    wrap('reader',    { notes }),
+        documents: wrap('documents', { documents: documentsMeta, note: 'Binary blobs not included — use Document Hub Export for blobs.' }),
+        settings:  wrap('settings',  settingsPayload),
+      },
+    };
+
+    const filename = `smartapp-full-${timestampStr()}.json`;
+    downloadJson(filename, bundle);
+    toast('✓ Full backup downloaded');
+  } catch (err) {
+    toast('Backup failed: ' + err.message, 'err');
+  }
+}
+
+/* ---------- Storage diagnostics ---------- */
+function diagnoseStorage(status) {
+  const ua = navigator.userAgent || '';
+  const isEdge    = /\bEdg\//.test(ua);
+  const isChrome  = /\bChrome\//.test(ua) && !isEdge;
+  const isFirefox = /\bFirefox\//.test(ua);
+  const isSafari  = /\bSafari\//.test(ua) && !/\bChrome\//.test(ua) && !isEdge;
+  const isMobile  = /\bMobi|\bAndroid|iPhone/.test(ua);
+
+  let browser = 'Unknown';
+  if (isEdge)         browser = `Edge${isMobile ? ' (mobile)' : ' (desktop)'}`;
+  else if (isChrome)  browser = `Chrome${isMobile ? ' (mobile)' : ' (desktop)'}`;
+  else if (isFirefox) browser = `Firefox${isMobile ? ' (mobile)' : ' (desktop)'}`;
+  else if (isSafari)  browser = `Safari${isMobile ? ' (mobile)' : ' (desktop)'}`;
+
+  const persisted = status.persisted;
+  let modeLabel;
+  if (persisted === true) {
+    modeLabel = `<span style="color:var(--lime);">✓ Persistent</span>`;
+  } else if (persisted === false) {
+    modeLabel = `<span style="color:var(--warn);">⚠ Temporary</span>`;
+  } else {
+    modeLabel = `<span style="color:var(--ink-dim);">Unknown</span>`;
+  }
+
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
+                       window.navigator.standalone === true;
+  const pwaLabel = isStandalone
+    ? `<span style="color:var(--lime);">✓ Installed (standalone)</span>`
+    : `<span style="color:var(--ink-dim);">Browser tab</span>`;
+
+  let advice;
+  if (persisted === true) {
+    advice = `<strong style="color:var(--lime);">Healthy.</strong> Browser cache clearing will not wipe your data. "Clear all site data" still will — keep export backups.`;
+  } else if (persisted === false && isEdge && !isStandalone) {
+    advice = `<strong style="color:var(--warn);">⚠ This explains the desktop wipes.</strong> Edge runs in <em>Temporary</em> mode until you install the PWA. Steps to fix: (1) Click the install icon in Edge's address bar (looks like a screen with a down arrow), OR Settings menu → Apps → Install this site as an app. (2) Once installed, open SmartApp from your Start menu — not as a browser tab. (3) Return here and tap RETRY below — should flip to <strong>Persistent</strong>.`;
+  } else if (persisted === false && !isStandalone) {
+    advice = `<strong style="color:var(--warn);">⚠ Storage may be evicted</strong> if disk is low or you don't visit for ~30 days. Install the PWA to upgrade to Persistent — most browsers grant it automatically after install.`;
+  } else if (persisted === false && isStandalone) {
+    advice = `Installed but the browser denied persistent mode. Tap RETRY below. If it still denies, your local data is still functional — just keep regular exports.`;
+  } else {
+    advice = `Cannot determine persistence mode on this browser.`;
+  }
+
+  const showRetry = (persisted !== true);
+
+  return { browser, modeLabel, pwaLabel, advice, showRetry };
 }
 
 /* ---------- Launcher ---------- */
