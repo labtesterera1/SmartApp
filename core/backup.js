@@ -10,6 +10,52 @@
 
 import { VERSION } from './version.js';
 
+/* ---------- Backup history tracking ----------
+   Stamped every time the user successfully exports anything.
+   Used by the auto-export reminder on home screen. */
+const LAST_BACKUP_KEY = 'smartapp_last_backup_v1';
+const REMINDER_DISMISSED_KEY = 'smartapp_reminder_dismissed_v1';
+const REMIND_AFTER_DAYS = 14;
+
+export function markBackupNow() {
+  try {
+    localStorage.setItem(LAST_BACKUP_KEY, String(Date.now()));
+    // Clear any dismissal so the next overdue cycle reminds again
+    localStorage.removeItem(REMINDER_DISMISSED_KEY);
+  } catch {}
+}
+
+export function getLastBackupTs() {
+  try {
+    const v = localStorage.getItem(LAST_BACKUP_KEY);
+    if (!v) return null;
+    const n = parseInt(v, 10);
+    return Number.isFinite(n) ? n : null;
+  } catch { return null; }
+}
+
+export function getDaysSinceBackup() {
+  const ts = getLastBackupTs();
+  if (!ts) return null;
+  return Math.floor((Date.now() - ts) / 86400000);
+}
+
+/** Show reminder if: never backed up OR ≥14 days since AND not dismissed today. */
+export function shouldShowBackupReminder() {
+  const days = getDaysSinceBackup();
+  if (days !== null && days < REMIND_AFTER_DAYS) return false;
+  try {
+    const dismissed = parseInt(localStorage.getItem(REMINDER_DISMISSED_KEY) || '0', 10);
+    if (!Number.isFinite(dismissed) || dismissed <= 0) return true;
+    // Dismissed within the last 24 hours → don't re-show today
+    return (Date.now() - dismissed) > 24 * 3600 * 1000;
+  } catch { return true; }
+}
+
+export function dismissBackupReminder() {
+  try { localStorage.setItem(REMINDER_DISMISSED_KEY, String(Date.now())); } catch {}
+}
+
 /* ---------- Downloading ---------- */
 export function downloadJson(filename, obj) {
   const json = JSON.stringify(obj, null, 2);
@@ -140,4 +186,101 @@ function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({
     '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
   }[c]));
+}
+
+/* ---------- Blob <-> base64 (for Document Hub binary photos) ---------- */
+export function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => {
+      // result is "data:<mime>;base64,<payload>" — strip the prefix
+      const s = String(r.result || '');
+      const i = s.indexOf(',');
+      resolve(i >= 0 ? s.slice(i + 1) : s);
+    };
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(blob);
+  });
+}
+
+export function base64ToBlob(b64, mime = 'application/octet-stream') {
+  const bin = atob(b64);
+  const len = bin.length;
+  const u8 = new Uint8Array(len);
+  for (let i = 0; i < len; i++) u8[i] = bin.charCodeAt(i);
+  return new Blob([u8], { type: mime });
+}
+
+/* ---------- Light vs Full bundle picker modal ----------
+   Used by EXPORT ALL. Returns 'light' | 'full' | null. */
+export function askLightOrFull(approxBlobs) {
+  return new Promise(resolve => {
+    const existing = document.getElementById('bk-prompt');
+    if (existing) existing.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'bk-prompt';
+    overlay.className = 'bk-prompt';
+    overlay.innerHTML = `
+      <div class="bk-prompt__card">
+        <div class="bk-prompt__head">EXPORT ALL — CHOOSE FORMAT</div>
+        <div class="bk-prompt__body">
+          <div class="bk-prompt__note">
+            <strong style="color:var(--lime);">LIGHT</strong> — Sign-Up Kit, Reader, Settings, and Document Hub <em>metadata</em> only. Small file (a few MB). Photos NOT included — use Document Hub's own export for blobs.<br><br>
+            <strong style="color:var(--lime);">FULL</strong> — Everything above <em>plus</em> all photo blobs from Document Hub. Approx ${escapeHtml(approxBlobs || '?')} of photos. One file, but large — may not transfer over email or WhatsApp.<br><br>
+            <strong style="color:var(--warn);">Vault is never included in bulk exports.</strong> Use the Vault module's own export.
+          </div>
+        </div>
+        <div class="bk-prompt__actions">
+          <button class="btn btn--primary" data-act="light">LIGHT (metadata only)</button>
+          <button class="btn btn--primary" data-act="full">FULL (with photos)</button>
+          <button class="btn bk-prompt__cancel" data-act="cancel">CANCEL</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-act]');
+      if (!btn) return;
+      const choice = btn.dataset.act;
+      overlay.remove();
+      resolve(choice === 'cancel' ? null : choice);
+    });
+  });
+}
+
+/* ---------- File classification ----------
+   Identifies what kind of SmartApp file the user picked. */
+export function classifySmartAppFile(obj) {
+  if (!obj || typeof obj !== 'object') return { kind: 'invalid', reason: 'Empty file' };
+  if (obj.app !== 'smartapp') return { kind: 'invalid', reason: 'Not a SmartApp file' };
+
+  // Vault exports use a different envelope. Recognize and refuse politely.
+  // (Vault writes its own structure — see vault.js exportVault.)
+  if (obj.kind === 'vault-backup' || obj.module === 'vault') {
+    return { kind: 'vault', reason: 'Vault file — import from the Vault module instead.' };
+  }
+
+  if (obj.kind === 'full-backup' && obj.modules) {
+    return { kind: 'bundle', moduleNames: Object.keys(obj.modules) };
+  }
+  if (obj.module) {
+    return { kind: 'module', moduleName: obj.module };
+  }
+  return { kind: 'invalid', reason: 'Unknown format' };
+}
+
+/* ---------- Version-aware import check ----------
+   Compares file version to app version. Returns 'ok' | 'newer' | 'older' | 'unknown'.
+*/
+export function compareVersions(fileVer, appVer) {
+  if (!fileVer || !appVer) return 'unknown';
+  const parse = v => String(v).split('.').map(n => parseInt(n, 10) || 0);
+  const f = parse(fileVer), a = parse(appVer);
+  for (let i = 0; i < Math.max(f.length, a.length); i++) {
+    const fn = f[i] || 0, an = a[i] || 0;
+    if (fn > an) return 'newer';
+    if (fn < an) return 'older';
+  }
+  return 'ok';
 }

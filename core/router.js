@@ -28,6 +28,9 @@ import { db } from './storage.js';
 import {
   downloadJson, readJsonFromFile, triggerDownload, timestampStr,
   wrap, unwrap, askMergeOrReplace, mergeById,
+  markBackupNow, getDaysSinceBackup, shouldShowBackupReminder, dismissBackupReminder,
+  blobToBase64, base64ToBlob,
+  askLightOrFull, classifySmartAppFile, compareVersions,
 } from './backup.js';
 
 // ↓↓↓ THE REGISTRY — edit this to add/remove icons ↓↓↓
@@ -44,7 +47,72 @@ export function startApp() {
   trackInstallPrompt();
   bindSettingsButton();
   initPersistence();
+  paintHeartbeat();
   showLauncher();
+  // Defer the backup reminder so initial render isn't blocked
+  setTimeout(maybeShowBackupReminder, 1500);
+}
+
+/* ---------- Heartbeat dot ----------
+   Painted in the topbar. Lime = persistent ✓, orange = temporary, dim = unknown.
+   Tap → opens Settings (so user can see the full diagnostic). */
+async function paintHeartbeat() {
+  const btn = document.getElementById('heartbeat');
+  if (!btn) return;
+  let cls = 'is-unknown', label = 'Storage status';
+  try {
+    const status = await refreshUsage();
+    if (status.persisted === true) {
+      cls = 'is-ok'; label = 'Storage: Persistent ✓';
+    } else if (status.persisted === false) {
+      cls = 'is-warn'; label = 'Storage: Temporary — tap for details';
+    }
+  } catch {}
+  btn.className = `heartbeat ${cls}`;
+  btn.title = label;
+  btn.setAttribute('aria-label', label);
+  btn.onclick = () => renderSettings();
+}
+
+/* ---------- Backup reminder ----------
+   Shows a non-blocking toast on app open if it's been ≥14 days since the
+   last backup. Dismissed reminders don't re-appear for 24 hours. */
+function maybeShowBackupReminder() {
+  if (!shouldShowBackupReminder()) return;
+  const days = getDaysSinceBackup();
+  const msg = days === null
+    ? 'No backup yet — visit Settings → BACKUP'
+    : `Last backup ${days} days ago — back up soon`;
+  showReminderToast(msg);
+}
+
+function showReminderToast(msg) {
+  // A simple sticky toast with two actions: BACKUP NOW / LATER
+  const existing = document.getElementById('reminder-toast');
+  if (existing) existing.remove();
+  const t = document.createElement('div');
+  t.id = 'reminder-toast';
+  t.className = 'reminder-toast';
+  t.innerHTML = `
+    <span class="reminder-toast__icon">⚠</span>
+    <span class="reminder-toast__msg"></span>
+    <button class="reminder-toast__act" data-act="open">BACKUP</button>
+    <button class="reminder-toast__act reminder-toast__act--dim" data-act="later">LATER</button>
+  `;
+  t.querySelector('.reminder-toast__msg').textContent = msg;
+  t.addEventListener('click', (e) => {
+    const a = e.target.closest('[data-act]');
+    if (!a) return;
+    if (a.dataset.act === 'open') {
+      dismissBackupReminder();
+      t.remove();
+      renderSettings();
+    } else {
+      dismissBackupReminder();
+      t.remove();
+    }
+  });
+  document.body.appendChild(t);
 }
 
 /* ---------- PWA install state ---------- */
@@ -240,12 +308,18 @@ async function renderSettings() {
         <div class="set-row">
           <span class="set-row__k">EVERYTHING</span>
           <span class="set-row__v">
-            <button class="vault-tool-btn" id="export-all">⬇ EXPORT ALL (.zip)</button>
+            <button class="vault-tool-btn" id="export-all">⬇ EXPORT ALL</button>
+            <button class="vault-tool-btn" id="import-all">⬆ IMPORT ALL</button>
+            <input type="file" id="import-all-file" accept=".json,application/json" hidden>
           </span>
         </div>
+        <div class="set-row">
+          <span class="set-row__k">LAST BACKUP</span>
+          <span class="set-row__v" id="last-backup-label"></span>
+        </div>
         <div class="set-row__note set-row__note--inset">
-          <strong style="color:var(--lime);">SETTINGS</strong> = name, banner, daily messages, style preset.<br>
-          <strong style="color:var(--lime);">EXPORT ALL</strong> bundles every module's data (except Vault — export Vault separately so the master password stays only in your head). One zip per backup. Save regularly.
+          <strong style="color:var(--lime);">EXPORT ALL</strong> bundles Sign-Up Kit + Reader + Documents + Settings. Pick LIGHT or FULL when prompted. <strong style="color:var(--warn);">Vault is never included</strong> — use the Vault module's own export.<br>
+          <strong style="color:var(--lime);">IMPORT ALL</strong> accepts any SmartApp export file (individual module or full bundle) — auto-detected on read.
         </div>
       </div>
 
@@ -388,6 +462,7 @@ async function renderSettings() {
         if (navigator.storage && navigator.storage.persist) {
           const granted = await navigator.storage.persist();
           toast(granted ? '✓ Persistent granted' : 'Browser denied persistent mode', granted ? 'ok' : 'warn');
+          paintHeartbeat();
           renderSettings();
         } else {
           toast('Storage API not supported', 'err');
@@ -490,6 +565,28 @@ async function renderSettings() {
     view.querySelector('#import-settings-file').click();
   view.querySelector('#import-settings-file').onchange = handleImportSettings;
   view.querySelector('#export-all').onclick = exportEverything;
+  view.querySelector('#import-all').onclick = () =>
+    view.querySelector('#import-all-file').click();
+  view.querySelector('#import-all-file').onchange = handleImportAll;
+
+  // Paint LAST BACKUP label
+  paintLastBackupLabel(view.querySelector('#last-backup-label'));
+}
+
+function paintLastBackupLabel(el) {
+  if (!el) return;
+  const days = getDaysSinceBackup();
+  if (days === null) {
+    el.innerHTML = '<span style="color:var(--warn);">Never</span>';
+  } else if (days === 0) {
+    el.innerHTML = '<span style="color:var(--lime);">Today</span>';
+  } else if (days < 7) {
+    el.innerHTML = `<span style="color:var(--lime);">${days}d ago</span>`;
+  } else if (days < 14) {
+    el.innerHTML = `<span style="color:var(--ink);">${days}d ago</span>`;
+  } else {
+    el.innerHTML = `<span style="color:var(--warn);">${days}d ago — back up soon</span>`;
+  }
 }
 
 /* ---------- Settings export / import ---------- */
@@ -505,6 +602,7 @@ function exportSettings() {
       messages: getMessages(),
     };
     downloadJson(`settings-${timestampStr()}.json`, wrap('settings', payload));
+    markBackupNow();
     toast('✓ Settings exported');
   } catch (err) {
     toast('Export failed: ' + err.message, 'err');
@@ -538,26 +636,53 @@ async function handleImportSettings(e) {
   }
 }
 
-/* ---------- Export Everything ---------- */
+/* ---------- Export Everything (Light or Full) ---------- */
 async function exportEverything() {
   try {
-    toast('Bundling backup…');
+    // Get a rough size estimate for the picker prompt
+    const docs = await db.getAll('documents');
+    let blobBytes = 0;
+    for (const d of docs) {
+      if (d.blob && typeof d.blob.size === 'number') blobBytes += d.blob.size;
+    }
+    const sizeStr = blobBytes < 1024 * 1024
+      ? `${(blobBytes / 1024).toFixed(0)} KB`
+      : `${(blobBytes / (1024 * 1024)).toFixed(1)} MB`;
 
-    // Pull current data from each store directly (the modules cache it but we
-    // can't assume any module is rendered right now).
-    const [accounts, urls, notes, documents] = await Promise.all([
+    const choice = await askLightOrFull(`${docs.length} files, ~${sizeStr}`);
+    if (!choice) return;
+    const isFull = (choice === 'full');
+
+    toast(isFull ? 'Bundling FULL backup (may take a moment)…' : 'Bundling LIGHT backup…');
+
+    // Allow the UI to paint the toast before heavy work blocks the main thread
+    await new Promise(r => setTimeout(r, 30));
+
+    const [accounts, urls, notes] = await Promise.all([
       db.getAll('signupkit'),
       db.getAll('signup_urls'),
       db.getAll('reader_notes'),
-      db.getAll('documents'),
     ]);
 
-    // Documents may contain Blob objects that JSON.stringify can't serialize.
-    // Strip the blobs — metadata only — so the zip stays small and JSON-safe.
-    const documentsMeta = documents.map(d => {
-      const { blob, ...rest } = d;
-      return { ...rest, _blobOmitted: !!blob };
-    });
+    // Documents — Light = metadata only; Full = include base64 blobs
+    let documentsPayload;
+    if (isFull) {
+      const items = [];
+      for (const d of docs) {
+        const { blob, ...rest } = d;
+        items.push({
+          ...rest,
+          data: blob ? await blobToBase64(blob) : null,
+        });
+      }
+      documentsPayload = { documents: items, hasBlobs: true };
+    } else {
+      const metaItems = docs.map(d => {
+        const { blob, ...rest } = d;
+        return { ...rest, _blobOmitted: !!blob };
+      });
+      documentsPayload = { documents: metaItems, hasBlobs: false };
+    }
 
     const settingsPayload = {
       displayName: getDisplayName(),
@@ -569,28 +694,249 @@ async function exportEverything() {
       messages: getMessages(),
     };
 
-    // Build files in JSZip-style manually (we have no JSZip dependency, but
-    // for our purposes a single JSON file with all parts embedded is simpler
-    // and the user can still extract each module).
     const bundle = {
       app: 'smartapp',
       version: VERSION,
       exportedAt: new Date().toISOString(),
       kind: 'full-backup',
+      variant: isFull ? 'full' : 'light',
       modules: {
         signupkit: wrap('signupkit', { accounts, urls }),
         reader:    wrap('reader',    { notes }),
-        documents: wrap('documents', { documents: documentsMeta, note: 'Binary blobs not included — use Document Hub Export for blobs.' }),
+        documents: wrap('documents', documentsPayload),
         settings:  wrap('settings',  settingsPayload),
       },
     };
 
-    const filename = `smartapp-full-${timestampStr()}.json`;
+    const tag = isFull ? 'full' : 'light';
+    const filename = `smartapp-${tag}-${timestampStr()}.json`;
     downloadJson(filename, bundle);
-    toast('✓ Full backup downloaded');
+    markBackupNow();
+    toast(`✓ Backup downloaded (${tag.toUpperCase()})`);
   } catch (err) {
+    console.error(err);
     toast('Backup failed: ' + err.message, 'err');
   }
+}
+
+/* ---------- IMPORT ALL — auto-detect file type ---------- */
+async function handleImportAll(e) {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+
+  let obj;
+  try { obj = await readJsonFromFile(file); }
+  catch (err) { return toast('Import failed: ' + err.message, 'err'); }
+
+  // Vault files are explicitly handled here so we can give a clear message,
+  // since users might accidentally try to import them via the bulk button.
+  const cls = classifySmartAppFile(obj);
+  if (cls.kind === 'invalid') {
+    return toast('Not a SmartApp file: ' + cls.reason, 'err');
+  }
+  if (cls.kind === 'vault') {
+    return toast('Vault files import from inside the Vault module', 'warn');
+  }
+
+  // Version check — warn if file was created by a newer app
+  const cmp = compareVersions(obj.version, VERSION);
+  if (cmp === 'newer') {
+    if (!confirm(`This file was created by SmartApp v${obj.version}. You're running v${VERSION}. Some fields may be ignored. Continue?`)) {
+      return;
+    }
+  }
+
+  if (cls.kind === 'module') {
+    return importSingleModule(obj, cls.moduleName);
+  }
+  if (cls.kind === 'bundle') {
+    return importFullBundle(obj);
+  }
+}
+
+/* ---------- Import: single module (auto-routed by module name) ---------- */
+async function importSingleModule(envelope, moduleName) {
+  try {
+    const payload = unwrap(envelope, moduleName);
+    if (moduleName === 'signupkit') {
+      const accounts = Array.isArray(payload.accounts) ? payload.accounts : [];
+      const urls     = Array.isArray(payload.urls) ? payload.urls : [];
+      const choice = await askMergeOrReplace('Sign-Up Kit', {
+        current: 'current data',
+        incoming: `${accounts.length} acc, ${urls.length} URL`,
+      });
+      if (!choice) return;
+      await applySignupKit({ accounts, urls }, choice);
+      toast(`✓ Sign-Up Kit imported (${choice})`);
+    }
+    else if (moduleName === 'reader') {
+      const notes = Array.isArray(payload.notes) ? payload.notes : [];
+      const choice = await askMergeOrReplace('Reader Notes', {
+        current: 'current data',
+        incoming: `${notes.length} notes`,
+      });
+      if (!choice) return;
+      await applyReader(notes, choice);
+      toast(`✓ Reader imported (${choice})`);
+    }
+    else if (moduleName === 'documents') {
+      const items = Array.isArray(payload.documents) ? payload.documents : [];
+      const hasBlobs = !!payload.hasBlobs;
+      const choice = await askMergeOrReplace(
+        hasBlobs ? 'Documents (with blobs)' : 'Documents (metadata only)',
+        { current: 'current data', incoming: `${items.length} files` }
+      );
+      if (!choice) return;
+      await applyDocuments(items, choice, hasBlobs);
+      toast(`✓ Documents imported (${choice})`);
+    }
+    else if (moduleName === 'settings') {
+      if (!confirm('Replace current settings with values from this backup?')) return;
+      applySettings(payload);
+      paintAvatar();
+      renderSettings();
+      toast('✓ Settings imported');
+    }
+    else {
+      toast(`Unknown module: ${moduleName}`, 'err');
+    }
+  } catch (err) {
+    toast('Import failed: ' + err.message, 'err');
+  }
+}
+
+/* ---------- Import: full bundle (one prompt, applies to all) ---------- */
+async function importFullBundle(bundle) {
+  try {
+    const mods = bundle.modules || {};
+    const has = {
+      signupkit: !!mods.signupkit,
+      reader:    !!mods.reader,
+      documents: !!mods.documents,
+      settings:  !!mods.settings,
+    };
+    const variant = bundle.variant || (mods.documents?.payload?.hasBlobs ? 'full' : 'light');
+    const summary = Object.entries(has)
+      .filter(([, v]) => v).map(([k]) => k.toUpperCase()).join(', ');
+
+    const choice = await askMergeOrReplace(
+      `Full Bundle (${variant.toUpperCase()})`,
+      {
+        current: 'current data',
+        incoming: summary || 'empty bundle',
+      }
+    );
+    if (!choice) return;
+
+    if (has.signupkit) {
+      const p = mods.signupkit.payload || {};
+      await applySignupKit({
+        accounts: p.accounts || [],
+        urls:     p.urls || [],
+      }, choice);
+    }
+    if (has.reader) {
+      const p = mods.reader.payload || {};
+      await applyReader(p.notes || [], choice);
+    }
+    if (has.documents) {
+      const p = mods.documents.payload || {};
+      await applyDocuments(p.documents || [], choice, !!p.hasBlobs);
+    }
+    if (has.settings) {
+      // Settings is always a full replace (single-value fields)
+      applySettings(mods.settings.payload || {});
+      paintAvatar();
+    }
+    renderSettings();
+    toast(`✓ Full bundle imported (${choice})`);
+  } catch (err) {
+    console.error(err);
+    toast('Bundle import failed: ' + err.message, 'err');
+  }
+}
+
+/* ---------- Per-module apply helpers ---------- */
+async function applySignupKit({ accounts, urls }, choice) {
+  if (choice === 'replace') {
+    const cur = await db.getAll('signupkit');
+    const curU = await db.getAll('signup_urls');
+    for (const a of cur)  await db.delete('signupkit', a.id);
+    for (const u of curU) await db.delete('signup_urls', u.id);
+    for (const a of accounts) await db.put('signupkit', a);
+    for (const u of urls)     await db.put('signup_urls', u);
+  } else {
+    const curA = await db.getAll('signupkit');
+    const curU = await db.getAll('signup_urls');
+    const mergedA = mergeById(curA, accounts);
+    const mergedU = mergeById(curU, urls);
+    for (const a of mergedA) await db.put('signupkit', a);
+    for (const u of mergedU) await db.put('signup_urls', u);
+  }
+}
+
+async function applyReader(incoming, choice) {
+  if (choice === 'replace') {
+    const cur = await db.getAll('reader_notes');
+    for (const n of cur) await db.delete('reader_notes', n.id);
+    for (const n of incoming) await db.put('reader_notes', n);
+  } else {
+    const cur = await db.getAll('reader_notes');
+    const merged = mergeById(cur, incoming);
+    for (const n of merged) await db.put('reader_notes', n);
+  }
+}
+
+async function applyDocuments(incoming, choice, hasBlobs) {
+  // Convert base64 back to Blob where present
+  const restored = incoming.map(item => {
+    const { data, _blobOmitted, ...rest } = item;
+    if (hasBlobs && data && rest.mime) {
+      return { ...rest, blob: base64ToBlob(data, rest.mime) };
+    }
+    // Metadata-only — keep without blob (Hub will show without preview)
+    return rest;
+  });
+
+  if (choice === 'replace') {
+    const cur = await db.getAll('documents');
+    for (const d of cur) await db.delete('documents', d.id);
+    for (const d of restored) await db.put('documents', d);
+  } else {
+    // Merge documents by ID — newer wins on createdAt/updatedAt
+    const cur = await db.getAll('documents');
+    const map = new Map();
+    cur.forEach(d => map.set(d.id, d));
+    restored.forEach(d => {
+      const existing = map.get(d.id);
+      if (!existing) map.set(d.id, d);
+      else {
+        const a = existing.updatedAt || existing.createdAt || 0;
+        const b = d.updatedAt || d.createdAt || 0;
+        if (b > a) {
+          // If incoming has no blob but existing does, preserve the existing blob
+          if (!d.blob && existing.blob) d.blob = existing.blob;
+          map.set(d.id, d);
+        }
+      }
+    });
+    for (const d of map.values()) await db.put('documents', d);
+  }
+}
+
+function applySettings(payload) {
+  if (typeof payload.displayName === 'string') setDisplayName(payload.displayName);
+  if (typeof payload.nameStyleId === 'string') setNameStyleId(payload.nameStyleId);
+  if (typeof payload.bannerFit === 'string') setBannerFit(payload.bannerFit);
+  if (typeof payload.bannerPos === 'string') setBannerPos(payload.bannerPos);
+  if (typeof payload.banner === 'string' && payload.banner.startsWith('data:image')) {
+    try { localStorage.setItem('smartapp_banner_v1', payload.banner); } catch {}
+  }
+  if (typeof payload.profilePic === 'string' && payload.profilePic.startsWith('data:image')) {
+    try { localStorage.setItem('smartapp_profile_pic_v1', payload.profilePic); } catch {}
+  }
+  if (Array.isArray(payload.messages)) setMessages(payload.messages);
 }
 
 /* ---------- Storage diagnostics ---------- */
