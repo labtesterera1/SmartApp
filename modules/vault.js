@@ -187,26 +187,40 @@ function renderUnlock() {
   _root.innerHTML = `
     <div class="vault-pad">
       <div class="vault-pad__hint">VAULT LOCKED</div>
-      <input type="password" class="vault-input" id="pw"
-             name="${fieldName}"
-             placeholder="Master password"
-             autocomplete="off"
-             data-form-type="other"
-             data-lpignore="true"
-             data-1p-ignore="true"
-             autocorrect="off"
-             autocapitalize="off"
-             spellcheck="false"
-             value=""
-             autofocus>
+      <div class="vault-pwrow vault-pwrow--unlock">
+        <input type="password" class="vault-input" id="pw"
+               name="${fieldName}"
+               placeholder="Master password"
+               autocomplete="off"
+               data-form-type="other"
+               data-lpignore="true"
+               data-1p-ignore="true"
+               autocorrect="off"
+               autocapitalize="off"
+               spellcheck="false"
+               value=""
+               autofocus>
+        <button type="button" class="vault-pwrow__btn" id="pw-reveal"
+                title="Show/hide password" aria-label="Toggle visibility">👁</button>
+      </div>
       <div class="vault-err" id="err"></div>
       <button class="btn btn--primary vault-cta" id="unlock">UNLOCK</button>
     </div>
   `;
   const inp = _root.querySelector('#pw');
+  const reveal = _root.querySelector('#pw-reveal');
   // Defensive: kill anything autofill may have injected after render
   setTimeout(() => { inp.value = ''; inp.focus(); }, 0);
   setTimeout(() => { inp.value = ''; }, 120);
+
+  let revealed = false;
+  reveal.onclick = () => {
+    revealed = !revealed;
+    inp.type = revealed ? 'text' : 'password';
+    reveal.classList.toggle('is-active', revealed);
+    inp.focus();
+  };
+
   _root.querySelector('#unlock').onclick = handleUnlock;
   inp.addEventListener('keydown', e => {
     if (e.key === 'Enter') handleUnlock();
@@ -214,18 +228,22 @@ function renderUnlock() {
 }
 
 async function handleUnlock() {
-  const pw = _root.querySelector('#pw').value;
-  const err = _root.querySelector('#err');
   const inp = _root.querySelector('#pw');
+  let pw = inp.value;
+  const err = _root.querySelector('#err');
   err.textContent = '';
   const stored = loadStored();
   try {
     const key = await deriveKey(pw, b64ToBytes(stored.salt));
+    // Wipe password from memory as soon as the key is derived
+    pw = '';
+    try { inp.value = ''; } catch {}
     _entries = stored.ct ? await decryptBlob({ iv: stored.iv, ct: stored.ct }, key) : [];
     _key = key;
     bumpIdle();
     renderList();
   } catch {
+    pw = '';
     err.textContent = 'Wrong password.';
     inp.value = '';
     inp.classList.add('shake');
@@ -839,11 +857,14 @@ async function handleImport(e) {
   );
   if (!proceed) return;
 
-  const pw = prompt('Master password used for this backup:');
+  let pw = await promptMasterPassword('Enter master password used for this backup:');
   if (!pw) return;
 
   try {
     const key = await deriveKey(pw, b64ToBytes(payload.salt));
+    // Wipe the password from memory as soon as the key is derived
+    pw = wipeString(pw);
+
     const entries = await decryptBlob({ iv: payload.iv, ct: payload.ct }, key);
     if (!Array.isArray(entries)) throw new Error('Decryption returned non-array');
 
@@ -855,8 +876,110 @@ async function handleImport(e) {
     renderList();
     toast(`✓ Imported ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'}`);
   } catch {
+    pw = wipeString(pw);
     toast('Wrong password or corrupted backup', 'err');
   }
+}
+
+/* ---------- Custom masked password prompt ----------
+   Replaces window.prompt() which shows the password in clear text.
+   - Field is type="password" (browser default masking)
+   - 👁 reveal toggle to verify what was typed
+   - Field cleared and DOM node removed after submit/cancel
+   - Returns the typed password, or null on cancel
+*/
+function promptMasterPassword(message) {
+  return new Promise(resolve => {
+    const existing = document.getElementById('vault-pw-prompt');
+    if (existing) existing.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'vault-pw-prompt';
+    overlay.className = 'bk-prompt';
+    // Random name attribute defeats browser autofill/save associations
+    const fieldName = `vipw_${Math.random().toString(36).slice(2, 10)}`;
+    overlay.innerHTML = `
+      <div class="bk-prompt__card">
+        <div class="bk-prompt__head">🔒 MASTER PASSWORD</div>
+        <div class="bk-prompt__body">
+          <div class="bk-prompt__note" style="margin-bottom: 12px;">
+            ${escape(message)}
+          </div>
+          <div class="vault-pwrow vault-pwrow--prompt">
+            <input type="password" class="vault-input" id="vpw"
+                   name="${fieldName}"
+                   placeholder="Master password"
+                   autocomplete="off"
+                   data-form-type="other"
+                   data-lpignore="true"
+                   data-1p-ignore="true"
+                   autocorrect="off"
+                   autocapitalize="off"
+                   spellcheck="false"
+                   value=""
+                   autofocus>
+            <button type="button" class="vault-pwrow__btn" id="vpw-reveal"
+                    title="Show/hide password" aria-label="Toggle visibility">👁</button>
+          </div>
+        </div>
+        <div class="bk-prompt__actions">
+          <button class="btn btn--primary" data-act="ok">UNLOCK</button>
+          <button class="btn bk-prompt__cancel" data-act="cancel">CANCEL</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const input = overlay.querySelector('#vpw');
+    const reveal = overlay.querySelector('#vpw-reveal');
+    // Defensive: clear any value the browser may have auto-injected
+    setTimeout(() => { input.value = ''; input.focus(); }, 0);
+    setTimeout(() => { input.value = ''; }, 120);
+
+    let revealed = false;
+    reveal.onclick = () => {
+      revealed = !revealed;
+      input.type = revealed ? 'text' : 'password';
+      reveal.classList.toggle('is-active', revealed);
+      input.focus();
+    };
+
+    const finish = (val) => {
+      // Wipe the field before we remove it from the DOM
+      try { input.value = ''; } catch {}
+      try { overlay.remove(); } catch {}
+      resolve(val);
+    };
+
+    overlay.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-act]');
+      if (!btn) return;
+      if (btn.dataset.act === 'cancel') finish(null);
+      else if (btn.dataset.act === 'ok') {
+        const val = input.value;
+        finish(val || null);
+      }
+    });
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const val = input.value;
+        finish(val || null);
+      } else if (e.key === 'Escape') {
+        finish(null);
+      }
+    });
+  });
+}
+
+/* ---------- Best-effort password-string wipe ----------
+   JavaScript strings are immutable, so we can't zero the original bytes.
+   The best we can do is drop our reference so the garbage collector can
+   reclaim it. We also avoid letting it linger in closures or globals. */
+function wipeString(s) {
+  // Overwrite the local reference; caller should reassign to result.
+  void s;
+  return '';
 }
 
 /* ============================================================

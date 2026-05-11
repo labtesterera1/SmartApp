@@ -15,6 +15,7 @@ import {
   downloadJson, readJsonFromFile, timestampStr,
   wrap, unwrap, askMergeOrReplace, mergeById,
   markBackupNow,
+  dedupByContent, SIG,
 } from '../core/backup.js';
 
 const STORE_ACC  = 'signupkit';
@@ -579,11 +580,15 @@ async function handleImport(e) {
       for (const a of accounts) await db.put(STORE_ACC, a);
       for (const u of urls)     await db.put(STORE_URL, u);
     } else {
-      // Merge — newer wins per ID
+      // Merge — newer wins per ID, then content-dedup catches drifted IDs
       const mergedAccounts = mergeById(_accounts, accounts);
       const mergedUrls     = mergeById(_urls, urls);
-      for (const a of mergedAccounts) await db.put(STORE_ACC, a);
-      for (const u of mergedUrls)     await db.put(STORE_URL, u);
+      const dedupA = dedupByContent(mergedAccounts, SIG.signupkit);
+      const dedupU = dedupByContent(mergedUrls, SIG.signup_urls);
+      for (const a of dedupA.removed) await db.delete(STORE_ACC, a.id);
+      for (const u of dedupU.removed) await db.delete(STORE_URL, u.id);
+      for (const a of dedupA.kept)    await db.put(STORE_ACC, a);
+      for (const u of dedupU.kept)    await db.put(STORE_URL, u);
     }
     await refreshCache();
     renderList();

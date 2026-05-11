@@ -13,6 +13,7 @@ import {
   downloadJson, readJsonFromFile, timestampStr,
   wrap, unwrap, askMergeOrReplace, mergeById,
   markBackupNow,
+  dedupByContent, SIG,
 } from '../core/backup.js';
 
 const STORE = 'reader_notes';
@@ -488,7 +489,9 @@ async function handleImport(e) {
       for (const n of incoming) await db.put(STORE, n);
     } else {
       const merged = mergeById(_cache, incoming);
-      for (const n of merged) await db.put(STORE, n);
+      const dedup = dedupByContent(merged, SIG.reader);
+      for (const n of dedup.removed) await db.delete(STORE, n.id);
+      for (const n of dedup.kept)    await db.put(STORE, n);
     }
     await refreshCache();
     renderList();
