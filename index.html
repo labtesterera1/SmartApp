@@ -52,6 +52,11 @@
   <!-- Hidden file input for avatar upload -->
   <input type="file" id="avatar-input" accept="image/*" hidden>
 
+  <!-- Vendored libraries used by Document Hub bulk actions.
+       Loaded as classic scripts so they expose globals (window.JSZip, window.jspdf). -->
+  <script src="./vendor/jszip.min.js"></script>
+  <script src="./vendor/jspdf.umd.min.js"></script>
+
   <!-- Boot the app -->
   <script type="module">
     import { startApp } from './core/router.js';
