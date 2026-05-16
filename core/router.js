@@ -10,6 +10,7 @@ import documents  from '../modules/documents.js';
 import sweep      from '../modules/sweep.js';
 import vault      from '../modules/vault.js';
 import reader     from '../modules/reader.js';
+import guts      from '../modules/guts.js';
 import { VERSION, BUILD } from './version.js';
 import { initPersistence, refreshUsage } from './persistence.js';
 import {
@@ -36,7 +37,7 @@ import {
 import * as speech from './speech.js';
 
 // ↓↓↓ THE REGISTRY — edit this to add/remove icons ↓↓↓
-const MODULES = [ledger, documents, reader, sweep, vault];
+const MODULES = [ledger, documents, reader, sweep, vault, guts];
 // ↑↑↑ that's it — the launcher reads from here ↑↑↑
 
 let activeModule = null;
