@@ -5,10 +5,12 @@
    - Each module uses its own object store (e.g. 'documents')
    - Files stored as Blobs alongside JSON metadata
    - Promise-based API so modules can `await` it cleanly
+
+   v0.15 → v0.16: added guts_lessons + guts_wordbank stores
    ============================================================ */
 
-const DB_NAME = 'smartapp';
-const DB_VERSION = 3;
+const DB_NAME    = 'smartapp';
+const DB_VERSION = 4;            // bumped from 3 → 4 for GUTS stores
 
 // Register stores up-front so future modules can declare them here.
 const STORES = [
@@ -16,6 +18,8 @@ const STORES = [
   'signupkit',     // Sign-Up Kit accounts
   'signup_urls',   // Sign-Up Kit URLs (independent list)
   'reader_notes',  // Reader / Notes module
+  'guts_lessons',  // Get Up To Speed — processed lessons
+  'guts_wordbank', // Get Up To Speed — saved words
 ];
 
 let _dbPromise = null;
