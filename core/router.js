@@ -33,6 +33,7 @@ import {
   askLightOrFull, classifySmartAppFile, compareVersions,
   dedupByContent, SIG,
 } from './backup.js';
+import * as speech from './speech.js';
 
 // ↓↓↓ THE REGISTRY — edit this to add/remove icons ↓↓↓
 const MODULES = [ledger, documents, reader, sweep, vault];
@@ -293,6 +294,17 @@ async function renderSettings() {
           <strong style="color:var(--lime);">CONTAIN</strong> shows the whole image (may letterbox).
           <strong style="color:var(--lime);">POSITION</strong> picks which part of the image stays visible when cropped.
           Image compressed to ~800px JPEG on upload.
+        </div>
+      </div>
+
+      <div class="set-card">
+        <div class="set-card__head">READER</div>
+        <div class="set-row">
+          <span class="set-row__k">DEFAULT VOICE</span>
+          <span class="set-row__v" id="reader-voice-cell">…</span>
+        </div>
+        <div class="set-row__note set-row__note--inset">
+          Used when reading notes aloud. Hindi (Devanagari) text auto-picks a Hindi voice if installed on your device. Available voices come from your operating system — installing more system voices adds more options here.
         </div>
       </div>
 
@@ -572,6 +584,51 @@ async function renderSettings() {
 
   // Paint LAST BACKUP label
   paintLastBackupLabel(view.querySelector('#last-backup-label'));
+
+  // Paint READER voice picker
+  paintReaderVoicePicker(view);
+}
+
+function paintReaderVoicePicker(view) {
+  const cell = view.querySelector('#reader-voice-cell');
+  if (!cell) return;
+  if (!speech.isSupported()) {
+    cell.innerHTML = `<span style="color:var(--ink-dim);">Not supported on this browser</span>`;
+    return;
+  }
+  const render = () => {
+    const voices = speech.getVoices();
+    if (!voices || voices.length === 0) {
+      cell.innerHTML = `<span style="color:var(--ink-dim);">Loading voices…</span>`;
+      return;
+    }
+    const current = speech.getDefaultVoiceName() || '';
+    const options = ['<option value="">— auto-pick by language —</option>']
+      .concat(voices.map(v => {
+        const sel = v.name === current ? ' selected' : '';
+        return `<option value="${escAttr(v.name)}"${sel}>${escHtml(v.name)} (${escHtml(v.lang)})</option>`;
+      })).join('');
+    cell.innerHTML = `<select class="set-select" id="reader-voice">${options}</select>`;
+    const sel = cell.querySelector('#reader-voice');
+    sel.onchange = () => {
+      speech.setDefaultVoiceName(sel.value || null);
+      toast(sel.value ? '✓ Voice saved' : '✓ Voice cleared');
+    };
+  };
+  render();
+  // Some browsers populate voices async; render again once they arrive
+  try {
+    window.speechSynthesis.addEventListener('voiceschanged', render, { once: true });
+  } catch {}
+}
+
+function escAttr(s) {
+  return String(s ?? '').replace(/"/g, '&quot;');
+}
+function escHtml(s) {
+  return String(s ?? '').replace(/[&<>]/g, c => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;'
+  }[c]));
 }
 
 function paintLastBackupLabel(el) {

@@ -5,5 +5,5 @@
    Bump this on each meaningful release.
    ============================================================ */
 
-export const VERSION = '0.14.2';
-export const BUILD   = 'dedup-pwmask';
+export const VERSION = '0.15';
+export const BUILD   = 'multiselect-readaloud';
