@@ -15,6 +15,7 @@ import {
   markBackupNow,
   dedupByContent, SIG,
 } from '../core/backup.js';
+import * as speech from '../core/speech.js';
 
 const STORE = 'reader_notes';
 const MAX_IMG_DIM = 1600;
@@ -39,6 +40,7 @@ export default {
   },
 
   cleanup() {
+    try { speech.stop(); speech.onStateChange(null); } catch {}
     _editing = null;
     _readerOpen = false;
   },
@@ -523,6 +525,8 @@ function showReaderOverlay(note) {
   let overlay = document.getElementById('rd-reader');
   if (overlay) overlay.remove();
 
+  const speakSupported = speech.isSupported();
+
   overlay = document.createElement('div');
   overlay.id = 'rd-reader';
   overlay.className = 'rd-reader';
@@ -533,6 +537,17 @@ function showReaderOverlay(note) {
       <button class="rd-reader__copy" id="rd-copy" title="Copy">⧉</button>
     </header>
     <main class="rd-reader__body" id="rd-body"></main>
+    ${speakSupported ? `
+      <div class="rd-readaloud" id="rd-readaloud">
+        <button class="rd-readaloud__fab" id="rd-speak"
+                title="Read aloud (selection or full note)"
+                aria-label="Read aloud">🔊</button>
+        <div class="rd-readaloud__controls" id="rd-controls" hidden>
+          <button class="rd-readaloud__ctl" id="rd-pause"  title="Pause / Resume">⏸</button>
+          <button class="rd-readaloud__ctl" id="rd-stop"   title="Stop">⏹</button>
+        </div>
+      </div>
+    ` : ''}
   `;
   document.body.appendChild(overlay);
 
@@ -554,6 +569,46 @@ function showReaderOverlay(note) {
   overlay.querySelector('#rd-close').onclick = closeReader;
   overlay.querySelector('#rd-copy').onclick = () => copyValue(note.body || '');
 
+  // Read-aloud wiring
+  if (speakSupported) {
+    const fab      = overlay.querySelector('#rd-speak');
+    const controls = overlay.querySelector('#rd-controls');
+    const pauseBtn = overlay.querySelector('#rd-pause');
+    const stopBtn  = overlay.querySelector('#rd-stop');
+
+    const applyState = (state) => {
+      if (state === 'idle') {
+        controls.hidden = true;
+        fab.classList.remove('is-on');
+      } else if (state === 'paused') {
+        controls.hidden = false;
+        fab.classList.add('is-on');
+        pauseBtn.textContent = '▶';
+        pauseBtn.title = 'Resume';
+      } else {
+        controls.hidden = false;
+        fab.classList.add('is-on');
+        pauseBtn.textContent = '⏸';
+        pauseBtn.title = 'Pause';
+      }
+    };
+    speech.onStateChange(applyState);
+
+    fab.onclick = () => {
+      try {
+        const mode = speech.speakSelectionOr(note.body || '');
+        toast(mode === 'selection' ? 'Reading selection' : 'Reading full note');
+      } catch (err) {
+        toast(err.message || 'Speech failed', 'err');
+      }
+    };
+    pauseBtn.onclick = () => {
+      if (speech.getState() === 'paused') speech.resume();
+      else speech.pause();
+    };
+    stopBtn.onclick = () => speech.stop();
+  }
+
   // Esc closes
   document.addEventListener('keydown', readerKey);
 
@@ -566,6 +621,8 @@ function readerKey(e) {
 }
 
 function closeReader() {
+  // Always stop speech when reader closes — no orphan playback
+  try { speech.stop(); speech.onStateChange(null); } catch {}
   const overlay = document.getElementById('rd-reader');
   if (overlay) overlay.remove();
   document.removeEventListener('keydown', readerKey);

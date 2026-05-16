@@ -25,6 +25,12 @@ let _viewMode = (() => {
   try { return localStorage.getItem(VIEW_MODE_KEY) || 'grid'; }
   catch { return 'grid'; }
 })();
+let _selectMode = false;       // SELECT toggle state
+let _selectedIds = new Set();  // tickbox state when in select mode
+let _search = '';               // live filter string
+
+// Daily IMG counter for Camera captures (resets each day, monotonic per day)
+const IMG_COUNTER_KEY = 'smartapp_img_counter_v1';
 
 export default {
   id: 'documents',
@@ -41,6 +47,9 @@ export default {
   cleanup() {
     revokeAllUrls();
     _viewing = null;
+    _selectMode = false;
+    _selectedIds.clear();
+    _search = '';
   },
 };
 
@@ -66,6 +75,10 @@ function renderGrid() {
   const total = _cache.length;
   const totalSize = _cache.reduce((sum, f) => sum + (f.size || 0), 0);
 
+  const filtered = applySearch(_cache, _search);
+  const visibleTotal = filtered.length;
+  const allFilteredSelected = visibleTotal > 0 && filtered.every(f => _selectedIds.has(f.id));
+
   _root.innerHTML = `
     <div class="dh-bar">
       <span class="dh-bar__count">${total} FILE${total === 1 ? '' : 'S'}</span>
@@ -80,19 +93,50 @@ function renderGrid() {
       <label class="btn dh-actions__btn">
         📷&nbsp; CAMERA
         <input type="file" accept="image/*" capture="environment"
-               id="dh-camera" multiple hidden>
+               id="dh-camera" data-source="camera" multiple hidden>
       </label>
       <label class="btn dh-actions__btn">
         📁&nbsp; PICK
-        <input type="file" id="dh-pick" multiple hidden>
+        <input type="file" id="dh-pick" data-source="pick" multiple hidden>
       </label>
     </div>
 
     <div class="dh-tools">
       <button class="vault-tool-btn" id="dh-export">⬇ EXPORT BACKUP</button>
       <button class="vault-tool-btn" id="dh-import">⬆ IMPORT BACKUP</button>
+      <button class="vault-tool-btn ${_selectMode ? 'is-active' : ''}" id="dh-select">
+        ${_selectMode ? '✓ SELECT MODE' : '☐ SELECT'}
+      </button>
       <input type="file" id="dh-importfile" accept=".smartdocs,application/json" hidden>
     </div>
+
+    ${total > 0 ? `
+      <div class="search-bar">
+        <input type="search" id="dh-search" class="search-input"
+               placeholder="🔍 Search filenames…" value="${esc(_search)}">
+        ${_search ? '<button class="search-clear" id="dh-search-clear" type="button">×</button>' : ''}
+      </div>
+    ` : ''}
+
+    ${_selectMode && total > 0 ? `
+      <div class="dh-selectbar">
+        <button class="vault-tool-btn" id="dh-selectall">
+          ${allFilteredSelected ? '☑ DESELECT VISIBLE' : '☐ SELECT VISIBLE'}
+        </button>
+        <span class="dh-selectbar__count">
+          ${_selectedIds.size} selected
+        </span>
+      </div>
+      <div class="dh-actionbar ${_selectedIds.size === 0 ? 'is-empty' : ''}">
+        <button class="dh-actionbar__btn" id="dh-dl"
+                ${_selectedIds.size === 0 ? 'disabled' : ''}>⬇ DOWNLOAD ZIP</button>
+        <button class="dh-actionbar__btn" id="dh-pdf"
+                ${_selectedIds.size === 0 ? 'disabled' : ''}>📄 MERGE TO PDF</button>
+        <button class="dh-actionbar__btn dh-actionbar__btn--danger" id="dh-del"
+                ${_selectedIds.size === 0 ? 'disabled' : ''}>🗑 DELETE</button>
+        <button class="dh-actionbar__btn" id="dh-cancel">✕ CANCEL</button>
+      </div>
+    ` : ''}
 
     ${total === 0
       ? `<div class="empty-card">
@@ -106,7 +150,9 @@ function renderGrid() {
              <button class="empty-card__chip" id="empty-pick">📁 Pick a file</button>
            </div>
          </div>`
-      : `<div class="${_viewMode === 'list' ? 'dh-list' : 'dh-grid'}" id="grid"></div>`}
+      : visibleTotal === 0
+        ? `<div class="placeholder"><div class="placeholder__icon">·</div>No files match "${esc(_search)}".</div>`
+        : `<div class="${_viewMode === 'list' ? 'dh-list' : 'dh-grid'} ${_selectMode ? 'is-selecting' : ''}" id="grid"></div>`}
   `;
 
   _root.querySelector('#dh-camera').addEventListener('change', onFileChosen);
@@ -123,15 +169,52 @@ function renderGrid() {
   _root.querySelector('#dh-export').onclick = exportDocuments;
   _root.querySelector('#dh-import').onclick = () => _root.querySelector('#dh-importfile').click();
   _root.querySelector('#dh-importfile').onchange = handleImportDocs;
+  _root.querySelector('#dh-select').onclick = () => {
+    _selectMode = !_selectMode;
+    if (!_selectMode) _selectedIds.clear();
+    renderGrid();
+  };
 
-  if (total > 0) {
+  // Search
+  const searchEl = _root.querySelector('#dh-search');
+  if (searchEl) {
+    searchEl.addEventListener('input', () => {
+      _search = searchEl.value;
+      renderGrid();
+      setTimeout(() => _root.querySelector('#dh-search')?.focus(), 0);
+    });
+    const sc = _root.querySelector('#dh-search-clear');
+    if (sc) sc.onclick = () => { _search = ''; renderGrid(); };
+  }
+
+  // Select-mode action bar
+  if (_selectMode && total > 0) {
+    _root.querySelector('#dh-selectall').onclick = () => {
+      if (allFilteredSelected) {
+        filtered.forEach(f => _selectedIds.delete(f.id));
+      } else {
+        filtered.forEach(f => _selectedIds.add(f.id));
+      }
+      renderGrid();
+    };
+    _root.querySelector('#dh-dl').onclick    = bulkDownloadSelected;
+    _root.querySelector('#dh-pdf').onclick   = bulkMergeToPdf;
+    _root.querySelector('#dh-del').onclick   = bulkDeleteSelected;
+    _root.querySelector('#dh-cancel').onclick = () => {
+      _selectMode = false;
+      _selectedIds.clear();
+      renderGrid();
+    };
+  }
+
+  if (visibleTotal > 0) {
     const grid = _root.querySelector('#grid');
     if (_viewMode === 'list') {
-      _cache.forEach(file => grid.appendChild(buildListRow(file)));
+      filtered.forEach(file => grid.appendChild(buildListRow(file)));
     } else {
-      _cache.forEach(file => grid.appendChild(buildGridCell(file)));
+      filtered.forEach(file => grid.appendChild(buildGridCell(file)));
     }
-  } else {
+  } else if (total === 0) {
     const ec = _root.querySelector('#empty-cam');
     const ep = _root.querySelector('#empty-pick');
     if (ec) ec.onclick = () => _root.querySelector('#dh-camera').click();
@@ -158,7 +241,9 @@ function buildListRow(file) {
     thumb = `<div class="${cls}"><span>${escapeHtml(ext)}</span></div>`;
   }
 
+  const isSelected = _selectedIds.has(file.id);
   row.innerHTML = `
+    ${_selectMode ? `<span class="dh-check ${isSelected ? 'is-on' : ''}">${isSelected ? '✓' : ''}</span>` : ''}
     ${thumb}
     <div class="dh-row__main">
       <div class="dh-row__name">${escapeHtml(file.name)}</div>
@@ -168,11 +253,17 @@ function buildListRow(file) {
         · ${formatDate(file.createdAt)}
       </div>
     </div>
-    <span class="dh-row__chev">→</span>
+    <span class="dh-row__chev">${_selectMode ? '' : '→'}</span>
   `;
   row.addEventListener('click', () => {
-    _viewing = file.id;
-    renderDetail(file.id);
+    if (_selectMode) {
+      if (_selectedIds.has(file.id)) _selectedIds.delete(file.id);
+      else _selectedIds.add(file.id);
+      renderGrid();
+    } else {
+      _viewing = file.id;
+      renderDetail(file.id);
+    }
   });
   return row;
 }
@@ -200,7 +291,9 @@ function buildGridCell(file) {
              </div>`;
   }
 
+  const isSelected = _selectedIds.has(file.id);
   cell.innerHTML = `
+    ${_selectMode ? `<span class="dh-check dh-check--cell ${isSelected ? 'is-on' : ''}">${isSelected ? '✓' : ''}</span>` : ''}
     ${inner}
     <div class="dh-cell__meta">
       <div class="dh-cell__name">${escapeHtml(shortenName(file.name))}</div>
@@ -211,8 +304,14 @@ function buildGridCell(file) {
   `;
 
   cell.addEventListener('click', () => {
-    _viewing = file.id;
-    renderDetail(file.id);
+    if (_selectMode) {
+      if (_selectedIds.has(file.id)) _selectedIds.delete(file.id);
+      else _selectedIds.add(file.id);
+      renderGrid();
+    } else {
+      _viewing = file.id;
+      renderDetail(file.id);
+    }
   });
   return cell;
 }
@@ -222,6 +321,7 @@ function buildGridCell(file) {
    ============================================================ */
 async function onFileChosen(e) {
   const input = e.currentTarget;
+  const source = input.dataset.source || 'pick';   // 'camera' | 'pick'
   const files = Array.from(input.files || []);
   input.value = '';                      // allow re-picking same file
   if (files.length === 0) return;
@@ -246,14 +346,25 @@ async function onFileChosen(e) {
       }
     }
 
+    // Filename rules:
+    // - Camera: rename to IMG_NN_DD-MMM-YY.ext (counter resets daily, monotonic)
+    // - Pick:   keep original filename as-is
+    let recordName;
+    if (source === 'camera') {
+      recordName = buildCameraName(storedExt || 'jpg', new Date(baseTime + i));
+    } else {
+      recordName = original.name || `file-${baseTime + i}.${storedExt || 'bin'}`;
+    }
+
     const record = {
       id: uuid(),
-      name: original.name || `capture-${baseTime + i}.${storedExt || 'bin'}`,
+      name: recordName,
       mime: storedMime,
       ext: storedExt,
       size: blob.size,
       originalSize: original.size,
       blob,
+      source,                          // 'camera' | 'pick' — recorded for future use
       createdAt: baseTime + i,
       updatedAt: baseTime + i,
     };
@@ -263,6 +374,34 @@ async function onFileChosen(e) {
 
   await refreshCache();
   routeView();
+}
+
+/* ---------- Camera filename builder ----------
+   Format: IMG_NN_DD-MMM-YY.ext (e.g. IMG_01_16-MAY-26.jpg)
+   - NN starts at 01 each day and is monotonic (deletes don't fill gaps)
+   - Date uses current local time
+   - Stored counter is { day: 'YYYY-MM-DD', n: number } in localStorage */
+function buildCameraName(ext, date) {
+  const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  const today = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+  let counter = { day: today, n: 0 };
+  try {
+    const raw = localStorage.getItem(IMG_COUNTER_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.day === today && typeof parsed.n === 'number') {
+        counter = parsed;
+      }
+    }
+  } catch {}
+  counter.n = counter.n + 1;
+  try { localStorage.setItem(IMG_COUNTER_KEY, JSON.stringify(counter)); } catch {}
+
+  const dd = String(date.getDate()).padStart(2, '0');
+  const mmm = months[date.getMonth()];
+  const yy = String(date.getFullYear()).slice(-2);
+  const nn = String(counter.n).padStart(2, '0');
+  return `IMG_${nn}_${dd}-${mmm}-${yy}.${ext}`;
 }
 
 /* ---------- Image compression ----------
@@ -656,6 +795,174 @@ async function base64ToBlob(b64, mime) {
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
   return new Blob([bytes], { type: mime || 'application/octet-stream' });
+}
+
+/* ============================================================
+   Search filter
+   ============================================================ */
+function applySearch(list, q) {
+  if (!q || !q.trim()) return list;
+  const needle = q.trim().toLowerCase();
+  return list.filter(f => (f.name || '').toLowerCase().includes(needle));
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  }[c]));
+}
+
+/* ============================================================
+   Bulk actions (Select mode)
+   ============================================================ */
+async function bulkDownloadSelected() {
+  const ids = Array.from(_selectedIds);
+  if (ids.length === 0) return;
+  const files = _cache.filter(f => ids.includes(f.id));
+  if (files.length === 0) return;
+
+  // Single file → just download it directly (no zip)
+  if (files.length === 1) {
+    triggerBlobDownload(files[0].blob, files[0].name);
+    toast('✓ Downloaded');
+    return;
+  }
+
+  // Multiple → zip
+  if (typeof window.JSZip !== 'function') {
+    toast('JSZip not loaded — try refreshing the app', 'err');
+    return;
+  }
+  toast('Bundling ZIP…');
+  try {
+    const zip = new window.JSZip();
+    const usedNames = new Set();
+    for (const f of files) {
+      let name = f.name || `file-${f.id}`;
+      // Ensure uniqueness inside the zip (two files could share a name)
+      if (usedNames.has(name)) {
+        const dot = name.lastIndexOf('.');
+        const base = dot > 0 ? name.slice(0, dot) : name;
+        const ext = dot > 0 ? name.slice(dot) : '';
+        let n = 1;
+        while (usedNames.has(`${base}_${n}${ext}`)) n++;
+        name = `${base}_${n}${ext}`;
+      }
+      usedNames.add(name);
+      zip.file(name, f.blob);
+    }
+    const out = await zip.generateAsync({ type: 'blob' });
+    const stamp = stampForZip();
+    triggerBlobDownload(out, `smartapp-files-${stamp}.zip`);
+    toast(`✓ ${files.length} files zipped`);
+  } catch (err) {
+    console.error(err);
+    toast('Zip failed: ' + err.message, 'err');
+  }
+}
+
+async function bulkMergeToPdf() {
+  const ids = Array.from(_selectedIds);
+  if (ids.length === 0) return;
+  const all = _cache.filter(f => ids.includes(f.id));
+  const images = all.filter(f => (f.mime || '').startsWith('image/'));
+  const skipped = all.length - images.length;
+
+  if (images.length === 0) {
+    toast('No images selected — MERGE TO PDF only works for images', 'warn');
+    return;
+  }
+  if (skipped > 0) {
+    toast(`${skipped} non-image file${skipped === 1 ? '' : 's'} skipped`, 'warn');
+  }
+
+  // jsPDF
+  const jsPDFNS = window.jspdf || window.jsPDF;
+  const jsPDFCtor = (jsPDFNS && jsPDFNS.jsPDF) || window.jsPDF;
+  if (typeof jsPDFCtor !== 'function') {
+    toast('jsPDF not loaded — try refreshing the app', 'err');
+    return;
+  }
+
+  toast(`Building PDF from ${images.length} image${images.length === 1 ? '' : 's'}…`);
+  try {
+    const pdf = new jsPDFCtor({ unit: 'pt', format: 'a4', compress: true });
+    const pageW = pdf.internal.pageSize.getWidth();
+    const pageH = pdf.internal.pageSize.getHeight();
+    const margin = 24;
+    const maxW = pageW - margin * 2;
+    const maxH = pageH - margin * 2;
+
+    for (let i = 0; i < images.length; i++) {
+      const f = images[i];
+      const dataUrl = await blobToDataUrl(f.blob);
+      const dims = await imageDims(dataUrl);
+      // Fit within page while preserving aspect ratio
+      const scale = Math.min(maxW / dims.w, maxH / dims.h);
+      const w = dims.w * scale;
+      const h = dims.h * scale;
+      const x = (pageW - w) / 2;
+      const y = (pageH - h) / 2;
+      const fmt = f.mime === 'image/png' ? 'PNG' : 'JPEG';
+      if (i > 0) pdf.addPage();
+      pdf.addImage(dataUrl, fmt, x, y, w, h, undefined, 'FAST');
+    }
+
+    const out = pdf.output('blob');
+    const stamp = stampForZip();
+    triggerBlobDownload(out, `smartapp-merged-${stamp}.pdf`);
+    toast(`✓ PDF created (${images.length} page${images.length === 1 ? '' : 's'})`);
+  } catch (err) {
+    console.error(err);
+    toast('PDF failed: ' + err.message, 'err');
+  }
+}
+
+async function bulkDeleteSelected() {
+  const ids = Array.from(_selectedIds);
+  if (ids.length === 0) return;
+  if (!confirm(`Delete ${ids.length} selected file${ids.length === 1 ? '' : 's'}? Cannot be undone.`)) return;
+  for (const id of ids) await db.delete(STORE, id);
+  _selectedIds.clear();
+  _selectMode = false;
+  await refreshCache();
+  routeView();
+  toast(`✓ Deleted ${ids.length}`);
+}
+
+function triggerBlobDownload(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+function stampForZip() {
+  const d = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(blob);
+  });
+}
+
+function imageDims(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
+    img.onerror = () => reject(new Error('Image load failed'));
+    img.src = dataUrl;
+  });
 }
 
 /* ============================================================
