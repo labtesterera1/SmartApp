@@ -2,24 +2,23 @@
    core/storage.js
    Tiny IndexedDB wrapper.
    - One database for the whole app: 'smartapp'
-   - Each module uses its own object store (e.g. 'documents')
+   - Each module uses its own object store
    - Files stored as Blobs alongside JSON metadata
    - Promise-based API so modules can `await` it cleanly
-
-   v0.15 → v0.16: added guts_lessons + guts_wordbank stores
    ============================================================ */
 
 const DB_NAME    = 'smartapp';
-const DB_VERSION = 4;            // bumped from 3 → 4 for GUTS stores
+const DB_VERSION = 5;           // bumped: +guts_lessons +guts_wordbank +guts_notes +guts_knowledge
 
-// Register stores up-front so future modules can declare them here.
 const STORES = [
-  'documents',     // Document Hub
-  'signupkit',     // Sign-Up Kit accounts
-  'signup_urls',   // Sign-Up Kit URLs (independent list)
-  'reader_notes',  // Reader / Notes module
-  'guts_lessons',  // Get Up To Speed — processed lessons
-  'guts_wordbank', // Get Up To Speed — saved words
+  'documents',       // Document Hub
+  'signupkit',       // Sign-Up Kit accounts
+  'signup_urls',     // Sign-Up Kit URLs
+  'reader_notes',    // Reader module
+  'guts_lessons',    // GUTS — processed lesson chunks
+  'guts_wordbank',   // GUTS — saved words + Hindi
+  'guts_notes',      // GUTS — notebook pages (rich text)
+  'guts_knowledge',  // GUTS — persistent cross-lesson vocab memory
 ];
 
 let _dbPromise = null;
