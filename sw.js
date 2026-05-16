@@ -6,8 +6,9 @@
    shell so the app launches without a network connection.
 
    To force users to pick up new code: bump CACHE_NAME below.
+   v0.15 → v0.16: added modules/guts.js to SHELL
    ============================================================ */
-const CACHE_NAME = 'smartapp-shell-v0.15';
+const CACHE_NAME = 'smartapp-shell-v0.16';
 const SHELL = [
   './',
   './index.html',
@@ -31,6 +32,7 @@ const SHELL = [
   './modules/sweep.js',
   './modules/vault.js',
   './modules/reader.js',
+  './modules/guts.js',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/icon-192-maskable.png',
