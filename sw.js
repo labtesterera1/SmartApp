@@ -1,12 +1,8 @@
 /* ============================================================
-   sw.js — service worker
-   Bare-minimum app-shell caching so the PWA installs and works offline.
-   IMPORTANT: We DO NOT cache user data — that lives in IndexedDB /
-   localStorage, untouched by this worker. We only cache the static
-   shell so the app launches without a network connection.
-
-   To force users to pick up new code: bump CACHE_NAME below.
-   v0.15 → v0.16: added modules/guts.js to SHELL
+   sw.js — service worker  v0.16
+   Bare-minimum app-shell caching so the PWA installs offline.
+   IMPORTANT: We do NOT cache user data — that lives in IndexedDB.
+   To force users onto new code: bump CACHE_NAME below.
    ============================================================ */
 const CACHE_NAME = 'smartapp-shell-v0.16';
 const SHELL = [
@@ -44,7 +40,6 @@ const SHELL = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) =>
-      // Cache what we can; tolerate individual failures.
       Promise.all(SHELL.map((url) =>
         cache.add(url).catch(() => null)
       ))
@@ -66,11 +61,9 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
-  // Only handle same-origin shell — leave fonts, CDNs, etc. alone.
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
 
-  // Network-first for navigation (so new index.html arrives), cache fallback offline.
   if (req.mode === 'navigate') {
     event.respondWith(
       fetch(req).catch(() => caches.match('./index.html'))
@@ -78,7 +71,6 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Stale-while-revalidate for shell assets.
   event.respondWith(
     caches.match(req).then((cached) => {
       const fresh = fetch(req).then((res) => {
