@@ -37,7 +37,7 @@ import * as speech from './speech.js';
 import guts        from '../modules/guts.js';
 
 // ↓↓↓ THE REGISTRY — edit this to add/remove icons ↓↓↓
-const MODULES = [ledger, documents, reader, sweep, vault, guts];
+const MODULES = [ledger, documents, reader, sweep, vault];
 // ↑↑↑ that's it — the launcher reads from here ↑↑↑
 
 let activeModule = null;
