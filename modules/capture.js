@@ -94,6 +94,8 @@ function injectStyles() {
     .cap-session-acts  { display:flex; gap:5px; padding:8px 14px; border-top:1px solid var(--border,#1f1f1f); flex-wrap:wrap; }
     .cap-empty { padding:32px 0; text-align:center; color:var(--ink-dim,#555); font-size:12px; }
     .cap-empty-icon { font-size:28px; margin-bottom:10px; }
+    .cap-status-bar { display:flex; align-items:center; padding:6px 10px; background:var(--bg-tile,#111); border:1px solid var(--border,#1f1f1f); margin-bottom:8px; flex-wrap:wrap; }
+    .cap-listening { font-size:9px; font-weight:700; letter-spacing:.12em; color:var(--lime,#d4ff3a); animation:cap-pulse 2s ease-in-out infinite; margin-right:8px; }
   `;
   document.head.appendChild(el);
 }
@@ -187,7 +189,7 @@ function renderRecord() {
         : `<div class="cap-info-row off"><span class="cap-tag">SYS</span>System audio not available on mobile</div>`}
       ${!SR ? `<div class="cap-info-row warn"><span class="cap-tag">!</span>Live transcript requires Chrome or Edge</div>` : ''}
     </div>
-    ${!isMobile ? `<div class="cap-tip"><strong>Tip:</strong> When screen share opens — select any screen then tick <strong>"Share system audio"</strong> at the bottom for training audio.</div>` : ''}
+    ${!isMobile ? `<div class="cap-tip"><strong>Chrome:</strong> tick <strong>"Share system audio"</strong> at bottom of share dialog. <strong>Edge:</strong> turn on <strong>"Also share tab audio"</strong> toggle. Then play training audio through <strong>speakers</strong> (not headphones) for best transcript.</div>` : ''}
     <button class="cap-main-btn cap-btn-start" id="cap-start">● Start Capture</button>`;
   }
 
@@ -196,7 +198,9 @@ function renderRecord() {
     html += `<div class="cap-transcript" id="cap-tx">`;
     _cap.lines.forEach(l => { html += `<div class="cap-line"><span class="cap-ts">[${l.time}]</span><span class="cap-txt">${esc(l.text)}</span></div>`; });
     if (_cap.interim) html += `<div class="cap-line interim"><span class="cap-ts">...</span><span class="cap-txt">${esc(_cap.interim)}</span></div>`;
-    html += `</div>
+    html += `</div>`;
+    html += `<div class="cap-status-bar"><span class="cap-listening">● Listening</span><span style="font-size:10px;color:var(--ink-dim,#555);margin-left:8px">Speak clearly — or play training audio through speakers for transcript</span></div>`;
+    html += `<div class="cap-row">
     <div class="cap-row">
       <button class="cap-btn" id="cap-break" style="flex:1">⏸ Take a Break</button>
       <button class="cap-btn danger" id="cap-stop" style="flex:1">■ Stop Session</button>
@@ -318,7 +322,7 @@ async function startCapture() {
     try {
       _cap.sysStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: { echoCancellation: false, noiseSuppression: false } });
       _cap.hasSys = _cap.sysStream.getAudioTracks().length > 0;
-      if (!_cap.hasSys) toast('No system audio — tick "Share system audio" next time', 'warn');
+      if (!_cap.hasSys) toast('No system audio — tick "Share system audio" (Chrome) or "Also share tab audio" (Edge)', 'warn');
     } catch(e) { toast('Screen share skipped — mic only', 'warn'); _cap.sysStream = null; }
   }
 
@@ -326,7 +330,15 @@ async function startCapture() {
     _cap.audioCtx = new AudioContext();
     const dest = _cap.audioCtx.createMediaStreamDestination();
     _cap.audioCtx.createMediaStreamSource(_cap.micStream).connect(dest);
-    if (_cap.hasSys && _cap.sysStream) _cap.audioCtx.createMediaStreamSource(_cap.sysStream).connect(dest);
+    if (_cap.hasSys && _cap.sysStream) {
+      const sysSource = _cap.audioCtx.createMediaStreamSource(_cap.sysStream);
+      sysSource.connect(dest); /* record system audio */
+      /* Loopback: play system audio at low volume through speakers so mic picks it up for transcript */
+      const loopGain = _cap.audioCtx.createGain();
+      loopGain.gain.value = 0.12;
+      sysSource.connect(loopGain);
+      loopGain.connect(_cap.audioCtx.destination);
+    }
     /* Silent keepalive oscillator — prevents browser from suspending capture */
     const osc = _cap.audioCtx.createOscillator();
     const g = _cap.audioCtx.createGain(); g.gain.value = 0.00001;
