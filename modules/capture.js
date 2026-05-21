@@ -271,7 +271,8 @@ async function doStart() {
   if (!SR) { toast('Chrome or Edge required for transcript','err'); return; }
 
   /* Microphone */
-  try { _mic = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true},video:false}); }
+  try { /* Jabra/pro headsets handle noise cancellation in hardware — disable browser processing */
+  _mic = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false},video:false}); }
   catch(e) { toast('Mic denied: '+e.message,'err'); return; }
 
   /* System audio (optional) */
@@ -338,7 +339,7 @@ function startSR() {
   if (!SR||!_running) return;
   if (_sr) { try{_sr.stop();}catch(e){} }
   _sr = new SR();
-  _sr.continuous=true; _sr.interimResults=true; _sr.lang='en-US'; _sr.maxAlternatives=1;
+  _sr.continuous=true; _sr.interimResults=true; _sr.lang='en'; _sr.maxAlternatives=1;
   _sr.onaudiostart  = ()=>setMsg('🎙 Mic active — receiving audio');
   _sr.onsoundstart  = ()=>setMsg('🔊 Sound detected');
   _sr.onspeechstart = ()=>setMsg('💬 Speech detected');
@@ -346,10 +347,22 @@ function startSR() {
   _sr.onresult = e=>{
     let interim='';
     for(let i=e.resultIndex;i<e.results.length;i++){
-      if(e.results[i].isFinal){const t=e.results[i][0].transcript.trim();if(t)_lines.push({t:fmt(_elapsed),s:t});}
-      else interim+=e.results[i][0].transcript;
+      if(e.results[i].isFinal){
+        /* Accept ALL results — don't filter empty, show [unclear] so user sees SR fired */
+        const t=(e.results[i][0].transcript||'').trim();
+        _lines.push({t:fmt(_elapsed),s:t||'[unclear speech]'});
+      } else {
+        interim+=e.results[i][0].transcript;
+      }
     }
-    _interim=interim; liveUpdate();
+    /* Show [processing] if interim empty — confirms onresult IS firing */
+    _interim = interim || (e.results.length>0?'[processing...]':'');
+    liveUpdate();
+  };
+  _sr.onnomatch = ()=>{
+    /* Speech detected but STT could not transcribe — push a marker */
+    _lines.push({t:fmt(_elapsed),s:'[speech not recognised — try speaking louder or in English]'});
+    liveUpdate();
   };
   _sr.onerror = ev=>{
     if (ev.error==='not-allowed'||ev.error==='service-not-allowed'){
@@ -368,7 +381,7 @@ function startSR() {
     }
   };
   _sr.onend = ()=>{
-    if(_running&&!_paused) setTimeout(()=>{ if(_running&&!_paused){try{_sr.start();}catch(e){}} },300);
+    if(_running&&!_paused) setTimeout(()=>{ if(_running&&!_paused){try{_sr.start();}catch(e){}} },800);
   };
   try { _sr.start(); setMsg('🎙 Mic open — speak to test'); }
   catch(e) { toast('SR start failed: '+e.message,'err'); setMsg('✗ '+e.message); }
