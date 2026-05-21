@@ -199,7 +199,7 @@ function renderRecord() {
     _cap.lines.forEach(l => { html += `<div class="cap-line"><span class="cap-ts">[${l.time}]</span><span class="cap-txt">${esc(l.text)}</span></div>`; });
     if (_cap.interim) html += `<div class="cap-line interim"><span class="cap-ts">...</span><span class="cap-txt">${esc(_cap.interim)}</span></div>`;
     html += `</div>`;
-    html += `<div class="cap-status-bar"><span class="cap-listening">● Listening</span><span style="font-size:10px;color:var(--ink-dim,#555);margin-left:8px">Speak clearly — or play training audio through speakers for transcript</span></div>`;
+    html += `<div class="cap-status-bar"><span class="cap-listening">● Listening</span><span id="cap-sr-status" style="font-size:10px;margin-left:8px;color:var(--ink-dim,#555)">Microphone open — speak now to test</span></div>`;
     html += `<div class="cap-row">
     <div class="cap-row">
       <button class="cap-btn" id="cap-break" style="flex:1">⏸ Take a Break</button>
@@ -335,7 +335,7 @@ async function startCapture() {
       sysSource.connect(dest); /* record system audio */
       /* Loopback: play system audio at low volume through speakers so mic picks it up for transcript */
       const loopGain = _cap.audioCtx.createGain();
-      loopGain.gain.value = 0.12;
+      loopGain.gain.value = 0.25;
       sysSource.connect(loopGain);
       loopGain.connect(_cap.audioCtx.destination);
     }
@@ -366,32 +366,85 @@ async function startCapture() {
 
 function startRecognition() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR || !_cap.running) return;
+  if (!SR) { toast('SpeechRecognition not supported — use Chrome or Edge', 'err'); return; }
+  if (!_cap.running) return;
   if (_cap.recognition) { try { _cap.recognition.stop(); } catch(e) {} }
+
   _cap.recognition = new SR();
   _cap.recognition.continuous = true;
   _cap.recognition.interimResults = true;
   _cap.recognition.lang = 'en-US';
+  _cap.recognition.maxAlternatives = 1;
+
+  /* Confirm audio pipeline is working */
+  _cap.recognition.onaudiostart = () => { setSrStatus('audio', '🎙 Audio input active'); };
+  _cap.recognition.onsoundstart = () => { setSrStatus('sound', '🔊 Sound detected'); };
+  _cap.recognition.onspeechstart= () => { setSrStatus('speech','💬 Speech detected — transcribing...'); };
+  _cap.recognition.onspeechend  = () => { setSrStatus('wait',  '● Listening'); };
+
   _cap.recognition.onresult = e => {
     let interim = '';
     for (let i = e.resultIndex; i < e.results.length; i++) {
       if (e.results[i].isFinal) {
         const t = e.results[i][0].transcript.trim();
-        if (t) _cap.lines.push({ time: fmt(_cap.elapsed), text: t });
+        if (t) { _cap.lines.push({ time: fmt(_cap.elapsed), text: t }); }
       } else { interim += e.results[i][0].transcript; }
     }
     _cap.interim = interim;
     updateLive();
   };
+
   _cap.recognition.onerror = ev => {
-    if (ev.error === 'not-allowed') { toast('Microphone denied', 'err'); stopCapture(); }
-  };
-  _cap.recognition.onend = () => {
-    if (_cap.running && !_cap.paused) {
-      setTimeout(() => { if (_cap.running && !_cap.paused) { try { _cap.recognition.start(); } catch(e) {} } }, 250);
+    const err = ev.error;
+    if (err === 'not-allowed' || err === 'service-not-allowed') {
+      setSrStatus('err', '✗ Microphone permission denied');
+      toast('Microphone denied — check ' + (navigator.userAgent.includes('Edg') ? 'Edge' : 'Chrome') + ' site permissions', 'err');
+      stopCapture();
+    } else if (err === 'audio-capture') {
+      setSrStatus('err', '✗ Microphone not accessible');
+      toast('Microphone not accessible — check system default mic', 'err');
+    } else if (err === 'network') {
+      setSrStatus('warn', '⚠ Network error — retrying');
+    } else if (err === 'no-speech') {
+      setSrStatus('wait', '● Listening — say something or speak louder');
+    } else if (err === 'aborted') {
+      setSrStatus('wait', '● Restarting...');
+    } else {
+      setSrStatus('warn', '⚠ ' + err);
+      toast('Recognition: ' + err, 'warn');
     }
   };
-  try { _cap.recognition.start(); } catch(e) {}
+
+  _cap.recognition.onend = () => {
+    if (_cap.running && !_cap.paused) {
+      setTimeout(() => {
+        if (_cap.running && !_cap.paused && _cap.recognition) {
+          try { _cap.recognition.start(); }
+          catch(e) { toast('Recognition restart failed: ' + e.message, 'warn'); }
+        }
+      }, 300);
+    }
+  };
+
+  try {
+    _cap.recognition.start();
+    setSrStatus('start', '🎙 Microphone open — speak now to test');
+  } catch(e) {
+    toast('Recognition failed to start: ' + e.message, 'err');
+    setSrStatus('err', '✗ Failed to start: ' + e.message);
+  }
+}
+
+function setSrStatus(type, msg) {
+  _cap._srStatus = msg;
+  const el = _root && _root.querySelector('#cap-sr-status');
+  if (el) {
+    el.textContent = msg;
+    el.style.color = type === 'err' ? '#e74c3c'
+      : type === 'warn' ? 'var(--warn,#e8b867)'
+      : type === 'speech' ? 'var(--lime,#d4ff3a)'
+      : 'var(--ink-dim,#555)';
+  }
 }
 
 function updateLive() {
