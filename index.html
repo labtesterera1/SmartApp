@@ -52,12 +52,11 @@
   <!-- Hidden file input for avatar upload -->
   <input type="file" id="avatar-input" accept="image/*" hidden>
 
-  <!-- Vendored libraries: expose globals (window.JSZip, window.jspdf) -->
+  <!-- Vendored libraries used by Document Hub bulk actions.
+       Loaded as classic scripts so they expose globals (window.JSZip, window.jspdf). -->
   <script src="./vendor/jszip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
   <script src="./vendor/jspdf.umd.min.js"></script>
-
-  <!-- PDF.js — used by GUTS module for PDF upload support -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 
   <!-- Boot the app -->
   <script type="module">
