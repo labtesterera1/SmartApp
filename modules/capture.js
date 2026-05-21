@@ -96,6 +96,11 @@ function injectStyles() {
     .cap-empty-icon { font-size:28px; margin-bottom:10px; }
     .cap-status-bar { display:flex; align-items:center; padding:6px 10px; background:var(--bg-tile,#111); border:1px solid var(--border,#1f1f1f); margin-bottom:8px; flex-wrap:wrap; }
     .cap-listening { font-size:9px; font-weight:700; letter-spacing:.12em; color:var(--lime,#d4ff3a); animation:cap-pulse 2s ease-in-out infinite; margin-right:8px; }
+    .cap-level-wrap { display:flex; align-items:center; gap:8px; padding:5px 10px; background:var(--bg-tile,#0d0d0d); border:1px solid var(--border,#1f1f1f); border-top:none; margin-bottom:8px; }
+    .cap-level-lbl { font-size:9px; font-weight:700; color:var(--ink-dim,#555); letter-spacing:.1em; flex-shrink:0; }
+    .cap-level-val { font-size:9px; color:var(--ink-dim,#555); font-family:monospace; flex-shrink:0; width:28px; text-align:right; }
+    .cap-level-track { flex:1; height:6px; background:#1a1a1a; border:1px solid #2a2a2a; overflow:hidden; }
+    .cap-level-bar { height:100%; width:0%; background:var(--lime,#d4ff3a); transition:width .08s linear; }
   `;
   document.head.appendChild(el);
 }
@@ -199,7 +204,8 @@ function renderRecord() {
     _cap.lines.forEach(l => { html += `<div class="cap-line"><span class="cap-ts">[${l.time}]</span><span class="cap-txt">${esc(l.text)}</span></div>`; });
     if (_cap.interim) html += `<div class="cap-line interim"><span class="cap-ts">...</span><span class="cap-txt">${esc(_cap.interim)}</span></div>`;
     html += `</div>`;
-    html += `<div class="cap-status-bar"><span class="cap-listening">● Listening</span><span id="cap-sr-status" style="font-size:10px;margin-left:8px;color:var(--ink-dim,#555)">Microphone open — speak now to test</span></div>`;
+    html += `<div class="cap-status-bar"><span class="cap-listening">● Listening</span><span id="cap-sr-status" style="font-size:10px;margin-left:8px;color:var(--ink-dim,#555)">Speak now — watching for audio</span></div>`;
+    html += `<div class="cap-level-wrap"><span class="cap-level-lbl">MIC</span><div class="cap-level-track"><div class="cap-level-bar" id="cap-mic-bar"></div></div><span class="cap-level-val" id="cap-mic-val">0%</span></div>`;
     html += `<div class="cap-row">
     <div class="cap-row">
       <button class="cap-btn" id="cap-break" style="flex:1">⏸ Take a Break</button>
@@ -335,7 +341,7 @@ async function startCapture() {
       sysSource.connect(dest); /* record system audio */
       /* Loopback: play system audio at low volume through speakers so mic picks it up for transcript */
       const loopGain = _cap.audioCtx.createGain();
-      loopGain.gain.value = 0.25;
+      loopGain.gain.value = 0.55;
       sysSource.connect(loopGain);
       loopGain.connect(_cap.audioCtx.destination);
     }
@@ -344,6 +350,22 @@ async function startCapture() {
     const g = _cap.audioCtx.createGain(); g.gain.value = 0.00001;
     osc.connect(g); g.connect(_cap.audioCtx.destination); osc.start();
     _cap.keepalive = osc;
+    /* Mic level analyser — gives visual feedback that mic is working */
+    _cap.analyser = _cap.audioCtx.createAnalyser();
+    _cap.analyser.fftSize = 256;
+    _cap.audioCtx.createMediaStreamSource(_cap.micStream).connect(_cap.analyser);
+    _cap.levelTimer = setInterval(function(){
+      if(!_cap.analyser)return;
+      const data=new Uint8Array(_cap.analyser.fftSize);
+      _cap.analyser.getByteTimeDomainData(data);
+      let maxVal=0;
+      for(let i=0;i<data.length;i++){const v=Math.abs(data[i]-128);if(v>maxVal)maxVal=v;}
+      const pct=Math.min(100,Math.round(maxVal*2.2));
+      const bar=_root&&_root.querySelector('#cap-mic-bar');
+      if(bar)bar.style.width=pct+'%';
+      const lbl=_root&&_root.querySelector('#cap-mic-val');
+      if(lbl)lbl.textContent=pct+'%';
+    },80);
     const mime = bestMime();
     _cap.recorder = new MediaRecorder(dest.stream, mime ? { mimeType: mime } : {});
     _cap.chunks = [];
@@ -483,6 +505,7 @@ function stopCapture() {
   if (_cap.recorder && _cap.recorder.state !== 'inactive') _cap.recorder.stop();
   if (_cap.micStream) _cap.micStream.getTracks().forEach(t => t.stop());
   if (_cap.sysStream) _cap.sysStream.getTracks().forEach(t => t.stop());
+  clearInterval(_cap.levelTimer); _cap.levelTimer=null; _cap.analyser=null;
   if (_cap.audioCtx)  { try { _cap.audioCtx.close(); } catch(e) {} _cap.audioCtx = null; }
   _cap.interim = '';
   /* Auto-save to sessions store */
