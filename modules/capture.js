@@ -595,6 +595,37 @@ function captureSegment(){
   setMsg('🎙 Recording 10s segment...');
 }
 
+/* ── Whisper output sanitizer ────────────────────────────── */
+function sanitize(raw){
+  if(!raw)return '';
+  /* 1. Hard skip if extremely long — hallucination detected */
+  if(raw.length>400){
+    setMsg('⚠ Hallucination detected — segment skipped');
+    return '';
+  }
+  let t=raw.trim();
+  /* 2. Remove music/sound markers */
+  t=t.replace(/\(.*?music.*?\)/gi,'').replace(/\[.*?music.*?\]/gi,'')
+     .replace(/\(.*?applause.*?\)/gi,'').replace(/\(.*?noise.*?\)/gi,'').trim();
+  if(!t)return '';
+  /* 3. Dedup repeated phrases (Whisper hallucination pattern)
+        "good enough, good enough, good enough..." → "good enough" */
+  const parts=t.split(/\s*[,\.!?]\s*/);
+  const seen={};const result=[];
+  let consecRep=0;
+  for(let i=0;i<parts.length;i++){
+    const key=(parts[i]||'').trim().toLowerCase();
+    if(!key)continue;
+    seen[key]=(seen[key]||0)+1;
+    if(seen[key]<=2&&result.length<60){result.push(parts[i].trim());consecRep=0;}
+    else{consecRep++;if(consecRep===1)result.push('...');if(consecRep>3)break;}
+  }
+  t=result.join(', ').replace(/,\s*\.\.\.\s*,/g,', ...').trim();
+  /* 4. Final hard cap */
+  if(t.length>400)t=t.slice(0,400)+'...';
+  return t;
+}
+
 async function processBlob(blob){
   if(!_whisper)return;
   try{
@@ -617,11 +648,14 @@ async function processBlob(blob){
     const wav=float32ToWav(f32,16000);
     const url=URL.createObjectURL(wav);
     let result;
-    try{result=await _whisper(url);}finally{URL.revokeObjectURL(url);}
+    try{
+      /* max_new_tokens: hard-stops generation at ~80 words — prevents hallucination hang */
+      result=await _whisper(url,{max_new_tokens:128,chunk_length_s:10,stride_length_s:2});
+    }finally{URL.revokeObjectURL(url);}
     const raw=(result&&result.text)||'';
-    const text=raw.trim().replace(/\[BLANK_AUDIO\]/gi,'').replace(/^\[.*\]$/,'').replace(/Thanks for watching.*/gi,'').trim();
-    if(text){_lines.push({t:fmt(_elapsed),s:text,spk:spk});liveUpdate();}
-    setMsg('✓ '+text.slice(0,40));
+    const text=sanitize(raw.replace(/\[BLANK_AUDIO\]/gi,'').replace(/Thanks for watching.*/gi,''));
+    if(text&&text!=='...'){_lines.push({t:fmt(_elapsed),s:text,spk:spk});liveUpdate();setMsg('✓ '+text.slice(0,45));}
+    else if(!text){setMsg('○ Silence or music — skipped');}
   }catch(e){setMsg('⚠ '+e.message.slice(0,40));}
 }
 
@@ -766,8 +800,11 @@ async function doFileUpload(){
       for(let j=0;j<outLen;j++){const s=Math.floor(j*ratio),e=Math.min(Math.floor((j+1)*ratio),chunk.length);let sum=0,cnt=0;for(let k=s;k<e;k++){sum+=chunk[k];cnt++;}rs[j]=cnt>0?sum/cnt:0;}
       const spk=assignSpeaker(rs);
       const wav=float32ToWav(rs,16000);const url=URL.createObjectURL(wav);
-      let result;try{result=await _whisper(url);}finally{URL.revokeObjectURL(url);}
-      const text=((result&&result.text)||'').trim().replace(/\[BLANK_AUDIO\]/gi,'').replace(/^\[.*\]$/,'').replace(/Thanks for watching.*/gi,'').trim();
+      let result;
+      try{
+        result=await _whisper(url,{max_new_tokens:128});
+      }finally{URL.revokeObjectURL(url);}
+      const text=sanitize(((result&&result.text)||'').replace(/\[BLANK_AUDIO\]/gi,'').replace(/Thanks for watching.*/gi,''));
       if(text){_lines.push({t:fmtSec(i*10),s:text,spk:spk});const txEl=_root&&_root.querySelector('#cap-tx');if(txEl){let h2='';_lines.forEach(function(l){h2+=speakerCard(l);});txEl.innerHTML=h2;txEl.scrollTop=txEl.scrollHeight;}}
       await new Promise(r=>setTimeout(r,100));
     }
