@@ -297,16 +297,7 @@ async function doStart(){
     micSrc.connect(dest);
     _analyser=_ctx.createAnalyser();_analyser.fftSize=256;
     micSrc.connect(_analyser);
-    if(_hasSys&&_sys){
-      const sysSrc=_ctx.createMediaStreamSource(_sys);
-      sysSrc.connect(dest);
-      /* Loopback for mic pickup */
-      const lp=_ctx.createGain();lp.gain.value=0.6;
-      sysSrc.connect(lp);lp.connect(_ctx.destination);
-    }
-    const osc=_ctx.createOscillator(),gn=_ctx.createGain();
-    gn.gain.value=0.00001;osc.connect(gn);gn.connect(_ctx.destination);osc.start();
-    /* ScriptProcessor captures raw PCM for Whisper — no decode issues */
+    /* ScriptProcessor captures raw PCM for Whisper (mic + system audio) */
     _sampleRate=_ctx.sampleRate;
     _pcmChunks=[];
     _scriptProc=_ctx.createScriptProcessor(4096,1,1);
@@ -314,10 +305,20 @@ async function doStart(){
       if(!_running||_paused)return;
       _pcmChunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
     };
-    micSrc.connect(_scriptProc);
-    /* Connect to silent gain to keep it in graph without echo */
+    micSrc.connect(_scriptProc); /* Mic → PCM for Whisper */
+    /* Connect to silent gain to keep ScriptProcessor in audio graph */
     const silentG=_ctx.createGain();silentG.gain.value=0;
     _scriptProc.connect(silentG);silentG.connect(_ctx.destination);
+    if(_hasSys&&_sys){
+      const sysSrc=_ctx.createMediaStreamSource(_sys);
+      sysSrc.connect(dest);         /* System audio → MediaRecorder */
+      sysSrc.connect(_scriptProc);  /* System audio → PCM for Whisper ← KEY FIX */
+      /* Also loopback to speakers at low volume as backup */
+      const lp=_ctx.createGain();lp.gain.value=0.3;
+      sysSrc.connect(lp);lp.connect(_ctx.destination);
+    }
+    const osc=_ctx.createOscillator(),gn=_ctx.createGain();
+    gn.gain.value=0.00001;osc.connect(gn);gn.connect(_ctx.destination);osc.start();
     const m=bestMime();
     _rec=new MediaRecorder(dest.stream,m?{mimeType:m}:{});
     _chunks=[];_pcmChunks=[];
