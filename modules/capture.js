@@ -178,7 +178,11 @@ function renderRecord(){
       h+='<strong>Chrome:</strong> "Share system audio" · <strong>Edge:</strong> "Also share tab audio"';
       h+='</div>';
     }
-    h+='<button class="cap-bigbtn cap-go" id="cap-start">● Start Capture</button>';
+    h+='<button class="cap-bigbtn cap-go" id="cap-start">● Start Live Capture</button>';
+    h+='<div style="margin-top:12px;padding-top:12px;border-top:1px solid #222">';
+    h+='<div class="cap-lbl">Or transcribe an existing audio/video file</div>';
+    h+='<button class="cap-btn" id="cap-file" style="width:100%;padding:12px">📂 Upload Audio File (.mp3 .wav .mp4 .webm .ogg)</button>';
+    h+='</div>';
   }
 
   /* RUNNING */
@@ -245,6 +249,8 @@ function bind(){
   const start=g('cap-start'),stp=g('cap-stp'),brk=g('cap-brk'),res=g('cap-res');
   const nw=g('cap-new'),txt=g('cap-txt'),ppt=g('cap-ppt'),aud=g('cap-audio');
   if(start)start.onclick=doStart;
+  const fileBtn=g('cap-file');
+  if(fileBtn)fileBtn.onclick=doFileUpload;
   if(stp)  stp.onclick=doStop;
   if(brk)  brk.onclick=doPause;
   if(res)  res.onclick=doResume;
@@ -266,6 +272,72 @@ function bind(){
 }
 
 /* ── Start ───────────────────────────────────────────────── */
+async function doFileUpload(){
+  const input=document.createElement('input');
+  input.type='file';
+  input.accept='audio/*,video/*,.mp3,.wav,.mp4,.webm,.ogg,.m4a';
+  input.onchange=async function(){
+    if(!input.files||!input.files[0])return;
+    const file=input.files[0];
+    toast('Loading file: '+file.name);
+    /* Load Whisper if not already loaded */
+    if(!_whisper){
+      _mode='whisper';render();
+      await loadWhisper();
+      if(!_whisper){toast('Failed to load Whisper','err');return;}
+    }
+    setMsg('🔄 Processing "'+file.name+'" — this may take a few minutes...');
+    try{
+      const url=URL.createObjectURL(file);
+      const result=await _whisper(url,{
+        chunk_length_s:30,
+        stride_length_s:5,
+        return_timestamps:true,
+      });
+      URL.revokeObjectURL(url);
+      /* Parse results */
+      _lines=[];
+      if(result.chunks&&result.chunks.length){
+        result.chunks.forEach(function(c){
+          const t=c.text.trim();
+          if(t&&t!=='[BLANK_AUDIO]'){
+            const ts=c.timestamp&&c.timestamp[0]!=null?fmtSec(c.timestamp[0]):'--';
+            _lines.push({t:ts,s:t});
+          }
+        });
+      }else if(result.text){
+        const t=result.text.trim();
+        if(t)_lines.push({t:'0:00',s:t});
+      }
+      _title=file.name.replace(/\.[^.]+$/,'');
+      _elapsed=0;
+      /* Estimate duration from last timestamp */
+      if(result.chunks&&result.chunks.length){
+        const last=result.chunks[result.chunks.length-1];
+        if(last.timestamp&&last.timestamp[1])_elapsed=Math.round(last.timestamp[1]);
+      }
+      /* Auto-save */
+      if(_lines.length){
+        addSession({id:uid(),title:_title,date:new Date().toLocaleDateString('en-IN'),createdAt:Date.now(),elapsed:_elapsed,lines:[..._lines],wc:wc(_lines)});
+        toast('Transcribed '+_lines.length+' segments from '+file.name);
+      }else{
+        toast('No speech detected in file','warn');
+      }
+      render();
+    }catch(e){
+      toast('File processing failed: '+e.message,'err');
+      setMsg('✗ '+e.message);
+    }
+  };
+  input.click();
+}
+
+function fmtSec(sec){
+  const s=Math.round(sec);
+  const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),x=s%60;
+  return h?h+':'+p2(m)+':'+p2(x):m+':'+p2(x);
+}
+
 async function doStart(){
   const te=_root&&_root.querySelector('#cap-ttl');
   _title=te?te.value.trim():'Training Session';
@@ -461,7 +533,7 @@ function captureSegment(){
     if(_whisperRec&&_whisperRec.state==='recording'){
       try{_whisperRec.stop();}catch(e){}
     }
-  },10000);
+  },30000); /* 30-second segments = Whisper native window = fewer boundary losses */
   setMsg('🎙 Recording 10s segment for Whisper...');
 }
 
@@ -495,15 +567,15 @@ async function processBlob(blob){
     const wav=float32ToWav(f32,16000);
     const url=URL.createObjectURL(wav);
     let result;
-    try{result=await _whisper(url);}finally{URL.revokeObjectURL(url);}
+    try{result=await _whisper(url,{chunk_length_s:30,stride_length_s:5});}finally{URL.revokeObjectURL(url);}
     const raw=(result&&result.text)||'';
     const text=raw.trim().replace(/\[BLANK_AUDIO\]/gi,'').replace(/^\[.*\]$/,'').replace(/Thanks for watching.*/gi,'').trim();
     if(text){
       _lines.push({t:fmt(_elapsed),s:text});
       liveUpdate();
-      setMsg('✓ Got: "'+text.slice(0,45)+'"');
+      setMsg('✓ '+text.slice(0,55));
     }else{
-      setMsg('○ Whisper: "'+raw.slice(0,30)+'" (peak:'+peak.toFixed(3)+')');
+      setMsg('○ No speech in this 30s (peak:'+peak.toFixed(3)+')');
     }
   }catch(e){
     setMsg('⚠ Error: '+e.message.slice(0,40));
