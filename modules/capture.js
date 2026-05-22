@@ -141,6 +141,7 @@ function modeBar(){
       bar+='<div class="cap-prog-track"><div class="cap-prog-bar" style="width:'+_wProgress+'%"></div></div>';
     }else{
       bar+='<span class="cap-mbar-sub" id="cap-msg">'+esc(_srMsg)+'</span>';
+      bar+='<div class="cap-prog-track"><div class="cap-prog-bar" id="cap-file-prog" style="width:0%"></div></div>';
     }
     bar+='</div>';
     return bar;
@@ -279,55 +280,86 @@ async function doFileUpload(){
   input.onchange=async function(){
     if(!input.files||!input.files[0])return;
     const file=input.files[0];
-    toast('Loading file: '+file.name);
-    /* Load Whisper if not already loaded */
+    _title=file.name.replace(/\.[^.]+$/,'');
+    _lines=[];_elapsed=0;_mode='whisper';
+    render();
+
+    /* Load Whisper if needed */
     if(!_whisper){
-      _mode='whisper';render();
+      toast('Loading offline engine...');
       await loadWhisper();
-      if(!_whisper){toast('Failed to load Whisper','err');return;}
+      if(!_whisper){toast('Failed to load engine','err');render();return;}
     }
-    setMsg('🔄 Processing "'+file.name+'" — this may take a few minutes...');
+
+    /* Decode audio file to raw PCM */
+    setMsg('Decoding audio file...');
+    let float32,sRate;
     try{
-      const url=URL.createObjectURL(file);
-      const result=await _whisper(url,{
-        chunk_length_s:30,
-        stride_length_s:5,
-        return_timestamps:true,
-      });
-      URL.revokeObjectURL(url);
-      /* Parse results */
-      _lines=[];
-      if(result.chunks&&result.chunks.length){
-        result.chunks.forEach(function(c){
-          const t=c.text.trim();
-          if(t&&t!=='[BLANK_AUDIO]'){
-            const ts=c.timestamp&&c.timestamp[0]!=null?fmtSec(c.timestamp[0]):'--';
-            _lines.push({t:ts,s:t});
-          }
-        });
-      }else if(result.text){
-        const t=result.text.trim();
-        if(t)_lines.push({t:'0:00',s:t});
-      }
-      _title=file.name.replace(/\.[^.]+$/,'');
-      _elapsed=0;
-      /* Estimate duration from last timestamp */
-      if(result.chunks&&result.chunks.length){
-        const last=result.chunks[result.chunks.length-1];
-        if(last.timestamp&&last.timestamp[1])_elapsed=Math.round(last.timestamp[1]);
-      }
-      /* Auto-save */
-      if(_lines.length){
-        addSession({id:uid(),title:_title,date:new Date().toLocaleDateString('en-IN'),createdAt:Date.now(),elapsed:_elapsed,lines:[..._lines],wc:wc(_lines)});
-        toast('Transcribed '+_lines.length+' segments from '+file.name);
-      }else{
-        toast('No speech detected in file','warn');
-      }
-      render();
+      const buf=await file.arrayBuffer();
+      const ctx2=new AudioContext();
+      const decoded=await ctx2.decodeAudioData(buf);
+      float32=decoded.getChannelData(0);
+      sRate=decoded.sampleRate;
+      try{ctx2.close();}catch(e){}
     }catch(e){
-      toast('File processing failed: '+e.message,'err');
-      setMsg('✗ '+e.message);
+      toast('Cannot decode file: '+e.message,'err');
+      _mode='cloud';render();return;
     }
+
+    _elapsed=Math.round(float32.length/sRate);
+    const chunkSamples=30*sRate;
+    const totalChunks=Math.ceil(float32.length/chunkSamples);
+    toast('Processing '+totalChunks+' chunks...');
+
+    for(let i=0;i<totalChunks;i++){
+      const pct=Math.round(((i+1)/totalChunks)*100);
+      setMsg('Processing '+(i+1)+'/'+totalChunks+' ('+pct+'%)');
+      const pb=_root&&_root.querySelector('#cap-file-prog');
+      if(pb)pb.style.width=pct+'%';
+
+      const start=i*chunkSamples;
+      const chunk=float32.slice(start,Math.min(start+chunkSamples,float32.length));
+
+      /* Check silence */
+      let peak=0;for(let j=0;j<chunk.length;j++){const v=Math.abs(chunk[j]);if(v>peak)peak=v;}
+      if(peak<0.005){await new Promise(r=>setTimeout(r,30));continue;}
+
+      /* Resample to 16kHz */
+      const ratio=sRate/16000;
+      const outLen=Math.round(chunk.length/ratio);
+      const rs=new Float32Array(outLen);
+      for(let j=0;j<outLen;j++){
+        const s2=Math.floor(j*ratio),e2=Math.min(Math.floor((j+1)*ratio),chunk.length);
+        let sum=0,cnt=0;for(let k=s2;k<e2;k++){sum+=chunk[k];cnt++;}
+        rs[j]=cnt>0?sum/cnt:0;
+      }
+
+      /* WAV + Whisper */
+      const wav=float32ToWav(rs,16000);
+      const url=URL.createObjectURL(wav);
+      let result;
+      try{result=await _whisper(url);}finally{URL.revokeObjectURL(url);}
+      const text=((result&&result.text)||'').trim()
+        .replace(/\[BLANK_AUDIO\]/gi,'').replace(/^\[.*\]$/,'')
+        .replace(/Thanks for watching.*/gi,'').trim();
+      if(text){
+        _lines.push({t:fmtSec(i*30),s:text});
+        const txEl=_root&&_root.querySelector('#cap-tx');
+        if(txEl){
+          let h2='';
+          _lines.forEach(function(l){h2+='<div class="cap-line"><span class="cap-ts">['+l.t+']</span><span class="cap-txt">'+esc(l.s)+'</span></div>';});
+          txEl.innerHTML=h2;txEl.scrollTop=txEl.scrollHeight;
+        }
+      }
+      /* Yield to keep UI responsive */
+      await new Promise(r=>setTimeout(r,100));
+    }
+
+    if(_lines.length){
+      addSession({id:uid(),title:_title,date:new Date().toLocaleDateString('en-IN'),createdAt:Date.now(),elapsed:_elapsed,lines:[..._lines],wc:wc(_lines)});
+      toast('Done — '+_lines.length+' segments from '+file.name);
+    }else{toast('No speech detected','warn');}
+    _running=false;_paused=false;render();
   };
   input.click();
 }
