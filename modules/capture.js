@@ -297,26 +297,34 @@ async function doStart(){
     micSrc.connect(dest);
     _analyser=_ctx.createAnalyser();_analyser.fftSize=256;
     micSrc.connect(_analyser);
-    /* ScriptProcessor captures raw PCM for Whisper (mic + system audio) */
+    /* Mixer: combines mic + system audio before ScriptProcessor */
     _sampleRate=_ctx.sampleRate;
     _pcmChunks=[];
+    const mixer=_ctx.createGain();mixer.gain.value=1;
+    micSrc.connect(mixer); /* Mic → mixer */
+    if(_hasSys&&_sys){
+      /* Extract audio-only stream from display media */
+      const audioOnly=new MediaStream(_sys.getAudioTracks());
+      const sysSrc=_ctx.createMediaStreamSource(audioOnly);
+      sysSrc.connect(dest);         /* System audio → MediaRecorder */
+      /* Boost system audio and feed into mixer */
+      const sysBoost=_ctx.createGain();sysBoost.gain.value=3.0;
+      sysSrc.connect(sysBoost);
+      sysBoost.connect(mixer);      /* System audio (boosted) → mixer → Whisper */
+      /* Loopback to speakers */
+      const lp=_ctx.createGain();lp.gain.value=0.3;
+      sysSrc.connect(lp);lp.connect(_ctx.destination);
+    }
+    /* ScriptProcessor on mixed audio */
     _scriptProc=_ctx.createScriptProcessor(4096,1,1);
     _scriptProc.onaudioprocess=function(e){
       if(!_running||_paused)return;
       _pcmChunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
     };
-    micSrc.connect(_scriptProc); /* Mic → PCM for Whisper */
-    /* Connect to silent gain to keep ScriptProcessor in audio graph */
+    mixer.connect(_scriptProc);
+    /* Silent output keeps ScriptProcessor alive */
     const silentG=_ctx.createGain();silentG.gain.value=0;
     _scriptProc.connect(silentG);silentG.connect(_ctx.destination);
-    if(_hasSys&&_sys){
-      const sysSrc=_ctx.createMediaStreamSource(_sys);
-      sysSrc.connect(dest);         /* System audio → MediaRecorder */
-      sysSrc.connect(_scriptProc);  /* System audio → PCM for Whisper ← KEY FIX */
-      /* Also loopback to speakers at low volume as backup */
-      const lp=_ctx.createGain();lp.gain.value=0.3;
-      sysSrc.connect(lp);lp.connect(_ctx.destination);
-    }
     const osc=_ctx.createOscillator(),gn=_ctx.createGain();
     gn.gain.value=0.00001;osc.connect(gn);gn.connect(_ctx.destination);osc.start();
     const m=bestMime();
@@ -487,7 +495,11 @@ function pcmToWav16k(chunks,inputRate){
 async function runWhisperPCM(chunks){
   if(!_whisper||!chunks.length)return;
   try{
-    setMsg('🔄 Processing audio...');
+    /* Diagnostic: check if audio has content */
+    const totalSamples=chunks.reduce((n,c)=>n+c.length,0);
+    let peak=0;for(const c of chunks)for(let i=0;i<c.length;i++){const v=Math.abs(c[i]);if(v>peak)peak=v;}
+    const dur=Math.round(totalSamples/_sampleRate);
+    setMsg('🔄 Processing '+dur+'s audio (peak: '+peak.toFixed(3)+')');
     const wav=pcmToWav16k(chunks,_sampleRate);
     const url=URL.createObjectURL(wav);
     let result;
@@ -498,7 +510,12 @@ async function runWhisperPCM(chunks){
       .replace(/Thanks for watching!/gi,'')
       .trim();
     if(text){_lines.push({t:fmt(_elapsed),s:text});liveUpdate();}
-    setMsg('✓ Whisper active — updates every ~10s');
+    if(text){
+      setMsg('✓ Got: "'+text.slice(0,40)+'"');
+    }else{
+      const raw=((result&&result.text)||'').slice(0,30);
+      setMsg('○ Whisper returned: "'+raw+'" (peak: '+peak.toFixed(3)+')');
+    }
   }catch(e){
     /* Skip bad chunk, continue — don't crash the session */
     setMsg('⚠ Skipped one cycle: '+e.message.slice(0,40));
