@@ -102,7 +102,7 @@ let _lines=[],_interim='',_title='';
 let _timer=null,_lvlTimer=null,_offlineTimer=null;
 let _mic=null,_sys=null,_ctx=null,_rec=null,_sr=null;
 let _chunks=[],_hasSys=false,_analyser=null;
-let _pcmChunks=[],_sampleRate=48000,_scriptProc=null;
+let _mixDest=null,_whisperRec=null,_whisperBusy=false;
 let _mode='cloud',_netErr=0,_srMsg='';
 let _whisper=null,_whisperLoading=false,_wProgress=0;
 
@@ -297,39 +297,26 @@ async function doStart(){
     micSrc.connect(dest);
     _analyser=_ctx.createAnalyser();_analyser.fftSize=256;
     micSrc.connect(_analyser);
-    /* Mixer: combines mic + system audio before ScriptProcessor */
-    _sampleRate=_ctx.sampleRate;
-    _pcmChunks=[];
+    /* Mixer: combines mic + system audio */
     const mixer=_ctx.createGain();mixer.gain.value=1;
-    micSrc.connect(mixer); /* Mic → mixer */
+    micSrc.connect(mixer);
     if(_hasSys&&_sys){
-      /* Extract audio-only stream from display media */
       const audioOnly=new MediaStream(_sys.getAudioTracks());
       const sysSrc=_ctx.createMediaStreamSource(audioOnly);
-      sysSrc.connect(dest);         /* System audio → MediaRecorder */
-      /* Boost system audio and feed into mixer */
+      sysSrc.connect(dest);
       const sysBoost=_ctx.createGain();sysBoost.gain.value=3.0;
-      sysSrc.connect(sysBoost);
-      sysBoost.connect(mixer);      /* System audio (boosted) → mixer → Whisper */
-      /* Loopback to speakers */
+      sysSrc.connect(sysBoost);sysBoost.connect(mixer);
       const lp=_ctx.createGain();lp.gain.value=0.3;
       sysSrc.connect(lp);lp.connect(_ctx.destination);
     }
-    /* ScriptProcessor on mixed audio */
-    _scriptProc=_ctx.createScriptProcessor(4096,1,1);
-    _scriptProc.onaudioprocess=function(e){
-      if(!_running||_paused)return;
-      _pcmChunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
-    };
-    mixer.connect(_scriptProc);
-    /* Silent output keeps ScriptProcessor alive */
-    const silentG=_ctx.createGain();silentG.gain.value=0;
-    _scriptProc.connect(silentG);silentG.connect(_ctx.destination);
+    /* Mixed audio destination — used by Whisper recorder */
+    _mixDest=_ctx.createMediaStreamDestination();
+    mixer.connect(_mixDest);
     const osc=_ctx.createOscillator(),gn=_ctx.createGain();
     gn.gain.value=0.00001;osc.connect(gn);gn.connect(_ctx.destination);osc.start();
     const m=bestMime();
     _rec=new MediaRecorder(dest.stream,m?{mimeType:m}:{});
-    _chunks=[];_pcmChunks=[];
+    _chunks=[];
     _rec.ondataavailable=e=>{
       if(!e.data||!e.data.size)return;
       _chunks.push(e.data);
@@ -409,7 +396,7 @@ async function switchToWhisper(){
   _srMsg='Loading offline engine...';
   render();
   await loadWhisper();
-  startOfflineLoop();
+  startWhisperLoop();
 }
 
 async function loadWhisper(){
@@ -447,79 +434,98 @@ async function loadWhisper(){
   }
 }
 
-function startOfflineLoop(){
-  if(_offlineTimer)return;
-  /* Process audio every 10 seconds */
-  _offlineTimer=setInterval(async()=>{
-    if(!_running||_paused||!_whisper||_whisperLoading)return;
-    if(!_pcmChunks.length)return;
-    const chunks=[..._pcmChunks];_pcmChunks=[];
-    await runWhisperPCM(chunks);
+function startWhisperLoop(){
+  if(!_mixDest||!_whisper||_whisperBusy)return;
+  /* Record 10-second segments as COMPLETE files — guaranteed decodable */
+  captureSegment();
+}
+
+function captureSegment(){
+  if(!_running||_paused||!_mixDest||!_whisper){return;}
+  _whisperBusy=true;
+  const chunks=[];
+  const m=bestMime();
+  _whisperRec=new MediaRecorder(_mixDest.stream,m?{mimeType:m}:{});
+  _whisperRec.ondataavailable=function(e){if(e.data&&e.data.size>0)chunks.push(e.data);};
+  _whisperRec.onstop=async function(){
+    _whisperBusy=false;
+    if(!chunks.length){if(_running&&!_paused)setTimeout(captureSegment,500);return;}
+    const blob=new Blob(chunks,{type:m||'audio/webm'});
+    await processBlob(blob);
+    /* Start next segment if still running */
+    if(_running&&!_paused)setTimeout(captureSegment,500);
+  };
+  _whisperRec.start();
+  /* Stop after 10 seconds to create a complete file */
+  setTimeout(function(){
+    if(_whisperRec&&_whisperRec.state==='recording'){
+      try{_whisperRec.stop();}catch(e){}
+    }
   },10000);
+  setMsg('🎙 Recording 10s segment for Whisper...');
 }
 
-/* pcmToWav16k: direct Float32 → 16kHz WAV — no decode step, no WebM issues */
-function pcmToWav16k(chunks,inputRate){
-  /* Combine all PCM chunks */
-  const totalLen=chunks.reduce((n,c)=>n+c.length,0);
-  const combined=new Float32Array(totalLen);
-  let pos=0;for(const c of chunks){combined.set(c,pos);pos+=c.length;}
-  /* Downsample to 16kHz (Whisper native) */
-  const targetRate=16000;
-  const ratio=inputRate/targetRate;
-  const outLen=Math.round(combined.length/ratio);
-  const resampled=new Float32Array(outLen);
-  for(let i=0;i<outLen;i++){
-    const s=Math.floor(i*ratio),e=Math.min(Math.floor((i+1)*ratio),combined.length);
-    let sum=0,cnt=0;for(let j=s;j<e;j++){sum+=combined[j];cnt++;}
-    resampled[i]=cnt>0?sum/cnt:0;
-  }
-  /* Encode 16-bit PCM WAV */
-  const buf=new ArrayBuffer(44+resampled.length*2);
-  const v=new DataView(buf);
-  const ws=(o,s)=>{for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i));};
-  ws(0,'RIFF');v.setUint32(4,36+resampled.length*2,true);
-  ws(8,'WAVE');ws(12,'fmt ');v.setUint32(16,16,true);
-  v.setUint16(20,1,true);v.setUint16(22,1,true);
-  v.setUint32(24,targetRate,true);v.setUint32(28,targetRate*2,true);
-  v.setUint16(32,2,true);v.setUint16(34,16,true);
-  ws(36,'data');v.setUint32(40,resampled.length*2,true);
-  let off=44;
-  for(let i=0;i<resampled.length;i++){
-    const x=Math.max(-1,Math.min(1,resampled[i]));
-    v.setInt16(off,x<0?x*0x8000:x*0x7FFF,true);off+=2;
-  }
-  return new Blob([buf],{type:'audio/wav'});
-}
-
-async function runWhisperPCM(chunks){
-  if(!_whisper||!chunks.length)return;
+async function processBlob(blob){
+  if(!_whisper)return;
   try{
-    /* Diagnostic: check if audio has content */
-    const totalSamples=chunks.reduce((n,c)=>n+c.length,0);
-    let peak=0;for(const c of chunks)for(let i=0;i<c.length;i++){const v=Math.abs(c[i]);if(v>peak)peak=v;}
-    const dur=Math.round(totalSamples/_sampleRate);
-    setMsg('🔄 Processing '+dur+'s audio (peak: '+peak.toFixed(3)+')');
-    const wav=pcmToWav16k(chunks,_sampleRate);
+    setMsg('🔄 Decoding + transcribing...');
+    /* Decode the COMPLETE audio file to PCM */
+    const arrayBuf=await blob.arrayBuffer();
+    const tmpCtx=new AudioContext();
+    let decoded;
+    try{decoded=await tmpCtx.decodeAudioData(arrayBuf);}
+    catch(decErr){
+      setMsg('⚠ Decode failed: '+decErr.message.slice(0,30));
+      try{tmpCtx.close();}catch(e){}
+      return;
+    }
+    /* Resample to 16kHz mono for Whisper */
+    const targetLen=Math.ceil(decoded.duration*16000);
+    if(targetLen<1600){/* Less than 0.1s — skip */try{tmpCtx.close();}catch(e){}return;}
+    const offCtx=new OfflineAudioContext(1,targetLen,16000);
+    const src=offCtx.createBufferSource();src.buffer=decoded;
+    src.connect(offCtx.destination);src.start(0);
+    const rendered=await offCtx.startRendering();
+    const f32=rendered.getChannelData(0);
+    try{tmpCtx.close();}catch(e){}
+    /* Check audio has content */
+    let peak=0;for(let i=0;i<f32.length;i++){const v=Math.abs(f32[i]);if(v>peak)peak=v;}
+    if(peak<0.005){setMsg('○ Silence detected (peak: '+peak.toFixed(4)+')');return;}
+    /* Convert to WAV */
+    const wav=float32ToWav(f32,16000);
     const url=URL.createObjectURL(wav);
     let result;
     try{result=await _whisper(url);}finally{URL.revokeObjectURL(url);}
-    const text=((result&&result.text)||'').trim()
-      .replace(/^\[BLANK_AUDIO\]$/i,'')
-      .replace(/^\[.*\]$/,'')
-      .replace(/Thanks for watching!/gi,'')
-      .trim();
-    if(text){_lines.push({t:fmt(_elapsed),s:text});liveUpdate();}
+    const raw=(result&&result.text)||'';
+    const text=raw.trim().replace(/\[BLANK_AUDIO\]/gi,'').replace(/^\[.*\]$/,'').replace(/Thanks for watching.*/gi,'').trim();
     if(text){
-      setMsg('✓ Got: "'+text.slice(0,40)+'"');
+      _lines.push({t:fmt(_elapsed),s:text});
+      liveUpdate();
+      setMsg('✓ Got: "'+text.slice(0,45)+'"');
     }else{
-      const raw=((result&&result.text)||'').slice(0,30);
-      setMsg('○ Whisper returned: "'+raw+'" (peak: '+peak.toFixed(3)+')');
+      setMsg('○ Whisper: "'+raw.slice(0,30)+'" (peak:'+peak.toFixed(3)+')');
     }
   }catch(e){
-    /* Skip bad chunk, continue — don't crash the session */
-    setMsg('⚠ Skipped one cycle: '+e.message.slice(0,40));
+    setMsg('⚠ Error: '+e.message.slice(0,40));
   }
+}
+
+function float32ToWav(samples,sr){
+  const buf=new ArrayBuffer(44+samples.length*2);
+  const v=new DataView(buf);
+  const ws=(o,s)=>{for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i));};
+  ws(0,'RIFF');v.setUint32(4,36+samples.length*2,true);
+  ws(8,'WAVE');ws(12,'fmt ');v.setUint32(16,16,true);
+  v.setUint16(20,1,true);v.setUint16(22,1,true);
+  v.setUint32(24,sr,true);v.setUint32(28,sr*2,true);
+  v.setUint16(32,2,true);v.setUint16(34,16,true);
+  ws(36,'data');v.setUint32(40,samples.length*2,true);
+  let off=44;
+  for(let i=0;i<samples.length;i++){
+    const x=Math.max(-1,Math.min(1,samples[i]));
+    v.setInt16(off,x<0?x*0x8000:x*0x7FFF,true);off+=2;
+  }
+  return new Blob([buf],{type:'audio/wav'});
 }
 
 function liveUpdate(){
@@ -536,7 +542,7 @@ function doPause(){
   _paused=true;_interim='';
   if(_sr){try{_sr.abort();}catch(e){}}
   if(_rec&&_rec.state==='recording'){try{_rec.pause();}catch(e){}}
-  _pcmChunks=[];
+  if(_whisperRec&&_whisperRec.state==='recording'){try{_whisperRec.stop();}catch(e){}}
   toast('Paused — take your break');render();
 }
 
@@ -545,7 +551,7 @@ function doResume(){
   _paused=false;
   if(_rec&&_rec.state==='paused'){try{_rec.resume();}catch(e){}}
   if(_mode==='cloud')startCloudSR();
-  else if(_mode==='whisper')startOfflineLoop();
+  else if(_mode==='whisper')startWhisperLoop();
   toast('Resumed');render();
 }
 
@@ -559,15 +565,15 @@ function doStop(){
   if(_sys)_sys.getTracks().forEach(t=>t.stop());
   if(_ctx){try{_ctx.close();}catch(e){}_ctx=null;}
   _analyser=null;_interim='';
-  if(_scriptProc){try{_scriptProc.disconnect();}catch(e){}}_scriptProc=null;
-  _pcmChunks=[];
+  if(_whisperRec&&_whisperRec.state==='recording'){try{_whisperRec.stop();}catch(e){}}_whisperRec=null;
+  _mixDest=null;_whisperBusy=false;
   /* Flush remaining PCM chunks */
-  if(_mode==='whisper'&&_pcmChunks.length&&_whisper){
-    runWhisperPCM([..._pcmChunks]).then(()=>{
-      _pcmChunks=[];
-      if(_lines.length)addSession({id:uid(),title:_title||'Session',date:new Date().toLocaleDateString('en-IN'),createdAt:Date.now(),elapsed:_elapsed,lines:[..._lines],wc:wc(_lines)});
+  if(_mode==='whisper'&&_whisper&&_lines.length){
+    /* Save session with what we have */
+    (function(){
+      addSession({id:uid(),title:_title||'Session',date:new Date().toLocaleDateString('en-IN'),createdAt:Date.now(),elapsed:_elapsed,lines:[..._lines],wc:wc(_lines)});
       render();
-    });
+    })();
   }else{
     if(_lines.length)addSession({id:uid(),title:_title||'Session',date:new Date().toLocaleDateString('en-IN'),createdAt:Date.now(),elapsed:_elapsed,lines:[..._lines],wc:wc(_lines)});
   }
