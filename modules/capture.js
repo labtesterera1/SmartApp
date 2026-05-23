@@ -305,7 +305,7 @@ function renderRecord(){
     }
     h+='<div class="cap-meter"><span class="cap-m-lbl">MIC</span><div class="cap-m-track"><div class="cap-m-bar" id="cap-bar"></div></div><span class="cap-m-val" id="cap-val">0%</span></div>';
     h+='<div class="cap-tx" id="cap-tx">';
-    _lines.forEach(function(l){h+=speakerCard(l);});
+    groupLines(_lines).forEach(function(g){h+=speakerCard(g);});
     h+='</div>';
     h+='<div class="cap-row"><button class="cap-btn" id="cap-brk" style="flex:1">⏸ Take a Break</button><button class="cap-btn red" id="cap-stp" style="flex:1">■ Stop Session</button></div>';
   }
@@ -341,7 +341,7 @@ function renderRecord(){
     if(_lines.length){
       h+='<div class="cap-sec">Full Transcript</div>';
       h+='<div class="cap-tx">';
-      _lines.forEach(function(l){h+=speakerCard(l);});
+      groupLines(_lines).forEach(function(g){h+=speakerCard(g);});
       h+='</div>';
     }
   }
@@ -455,7 +455,7 @@ function bind(){
       else if(a==='txt')dlTxt(s);
       else if(a==='pdf')dlPdf(s);
       else if(a==='ppt')dlPpt(s);
-      else if(a==='view'){_lines=s.lines||[];_elapsed=s.elapsed;_title=s.title;_chunks=[];_tab='record';render();}
+      else if(a==='view'){_lines=(s.lines||[]).map(function(l){return Object.assign({},l);});_elapsed=s.elapsed;_title=s.title;_chunks=[];_tab='record';render();}
     };
   });
   const mergeBtn=g('cap-merge'),mergeClear=g('cap-merge-clear');
@@ -749,22 +749,37 @@ function float32ToWav(samples,sr){
 }
 
 function addToTranscript(text,spk){
-  text=(text||'').trim().replace(/^\(.*\)$|^\[.*\]$/,'').trim();
+  /* Clean text */
+  text=(text||'').trim()
+    .replace(/^\(.*?\)$|^\[.*?\]$/g,'')
+    .trim();
   if(!text||text==='...')return;
-  const last=_lines[_lines.length-1];
-  const gap=last?(_elapsed-(last.sec||0)):999;
-  if(last&&last.spk===spk&&gap<=120){
-    last.s=last.s.trim()+' '+text;
-    last.sec=_elapsed;
-  }else{
-    _lines.push({t:fmt(_elapsed),s:text,spk:spk,sec:_elapsed});
-  }
+  /* Store raw with second-precision timestamp for grouping */
+  _lines.push({t:fmt(_elapsed),s:text,spk:spk,sec:_elapsed});
   liveUpdate();
+}
+
+function groupLines(lines){
+  /* Group consecutive same-speaker segments within 2-minute gap */
+  const groups=[];
+  lines.forEach(function(l){
+    const last=groups[groups.length-1];
+    const gap=last?(l.sec||0)-(last.sec||0):999;
+    if(last&&last.spk===l.spk&&gap<=120){
+      /* Same speaker, within 2 min — append sentence to existing card */
+      last.s=last.s.trimEnd()+' '+l.s;
+      last.sec=l.sec; /* keep updating so gap always measured from last chunk */
+    }else{
+      groups.push({t:l.t,s:l.s,spk:l.spk,sec:l.sec});
+    }
+  });
+  return groups;
 }
 
 function liveUpdate(){
   const tx=_root&&_root.querySelector('#cap-tx');if(!tx)return;
-  let h='';_lines.forEach(function(l){h+=speakerCard(l);});
+  const groups=groupLines(_lines);
+  let h='';groups.forEach(function(g){h+=speakerCard(g);});
   tx.innerHTML=h;tx.scrollTop=tx.scrollHeight;
 }
 
@@ -954,11 +969,12 @@ async function doFileUpload(){
 function dlTxt(s){
   if(!s.lines||!s.lines.length){toast('No transcript','warn');return;}
   const sep='='.repeat(48);
-  let body='TRANSCRIPT: '+s.title+'\nDate: '+(s.date||'')+'\nDuration: '+fmt(s.elapsed)+'\nWords: '+(s.wc||0)+'\n\n'+sep+'\n\n';
+  const gLines=groupLines(s.lines||[]);
+  let body='TRANSCRIPT: '+s.title+'\nDate: '+(s.date||'')+'\nDuration: '+fmt(s.elapsed)+'\nSegments: '+gLines.length+'\nWords: '+(s.wc||0)+'\n\n'+sep+'\n\n';
   let lastSpk='';
-  s.lines.forEach(function(l){
+  gLines.forEach(function(l){
     if((l.spk||'Speaker 1')!==lastSpk){lastSpk=l.spk||'Speaker 1';body+='\n['+lastSpk+']\n';}
-    body+='['+l.t+'] '+l.s+'\n';
+    body+='['+l.t+']\n'+l.s+'\n\n';
   });
   const blob=new Blob([body],{type:'text/plain'});const url=URL.createObjectURL(blob);
   const a=document.createElement('a');a.href=url;a.download=(s.title||'session').replace(/\s+/g,'-').toLowerCase()+'-transcript.txt';a.click();
