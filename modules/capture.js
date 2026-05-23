@@ -80,6 +80,20 @@ function injectCSS(){
     '.cap-size-warn.r{background:#1a0000;border:1px solid #8a0000;color:#e74c3c;font-weight:700}'+
     /* tx area */
     '.cap-tx{max-height:340px;overflow-y:auto;margin-bottom:8px;padding-right:2px}'+
+    '.cap-dual{display:flex;gap:8px;margin-bottom:8px;height:320px}'+
+    '.cap-live-pane,.cap-final-pane{display:flex;flex-direction:column;border:1px solid #1a1a1a;border-radius:6px;overflow:hidden}'+
+    '.cap-live-pane{flex:0 0 38%}'+
+    '.cap-final-pane{flex:1}'+
+    '.cap-pane-hdr{padding:6px 10px;font-size:9px;font-weight:700;letter-spacing:.1em;border-bottom:1px solid #1a1a1a;display:flex;justify-content:space-between}'+
+    '.cap-live-pane .cap-pane-hdr{color:#d4ff3a;background:#0a0a00}'+
+    '.cap-final-pane .cap-pane-hdr{color:#00e5a0;background:#001008}'+
+    '.cap-pane-body{flex:1;overflow-y:auto;padding:6px}'+
+    '.cap-pane-empty{padding:16px;font-size:11px;color:#333;text-align:center;font-style:italic}'+
+    '.cap-interim-live{padding:6px 8px;font-size:12px;color:#777;font-style:italic;border-bottom:1px solid #111;line-height:1.5}'+
+    '.cap-cursor{animation:capblink 0.7s step-start infinite;color:#d4ff3a;margin-left:1px}'+
+    '@keyframes capblink{0%,100%{opacity:1}50%{opacity:0}}'+
+    '.cap-spk-mini .cap-spk-hdr{margin-bottom:2px}'+
+    '.cap-spk-mini{padding:5px 7px;margin-bottom:3px}'+
     /* buttons */
     '.cap-bigbtn{width:100%;padding:14px;font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;border:none;cursor:pointer;margin-bottom:8px;border-radius:4px}'+
     '.cap-go{background:#d4ff3a;color:#0a0a0a}'+
@@ -144,6 +158,11 @@ let _mic=null,_sys=null,_ctx=null,_rec=null,_sr=null;
 let _chunks=[],_hasSys=false,_analyser=null;
 let _mixDest=null,_whisperRec=null,_whisperBusy=false;
 let _mixer=null,_pcmChunks=[],_scriptNode=null,_segTimer=null,_segProcessing=false,_captureSR=48000;
+/* Dual-track state */
+let _draft=[];         /* both cloud+whisper results, last 15s — shown in LIVE panel */
+let _confirmed=[];     /* merged final lines — shown in FINAL panel */
+let _cloudInterim='';  /* real-time interim text from cloud STT */
+let _transferTimer=null;
 let _mode='cloud',_netErr=0,_srMsg='';
 let _whisper=null,_whisperLoading=false,_wProgress=0;
 let _connLost=false,_connReason='';
@@ -306,9 +325,12 @@ function renderRecord(){
       h+='<div class="cap-ready-banner">● CAPTURING — continuous transcription active &nbsp;<span style="font-size:10px;color:#555">'+esc(_srMsg)+'</span></div>';
     }
     h+='<div class="cap-meter"><span class="cap-m-lbl">MIC</span><div class="cap-m-track"><div class="cap-m-bar" id="cap-bar"></div></div><span class="cap-m-val" id="cap-val">0%</span></div>';
-    h+='<div class="cap-tx" id="cap-tx">';
-    groupLines(_lines).forEach(function(g){h+=speakerCard(g);});
+    /* ── Dual-panel: LIVE (left) + FINAL TRANSCRIPT (right) ── */
+    h+='<div class="cap-dual">';
+    h+='<div class="cap-live-pane"><div class="cap-pane-hdr"><span>⚡ LIVE</span><span id="cap-live-src" style="font-weight:400;color:#555;font-size:9px">Waiting...</span></div><div class="cap-pane-body" id="cap-live-pane"><div class="cap-pane-empty">Listening...</div></div></div>';
+    h+='<div class="cap-final-pane"><div class="cap-pane-hdr"><span>📄 FINAL TRANSCRIPT</span><span id="cap-final-count" style="font-weight:400;color:#555;font-size:9px">0 segments</span></div><div class="cap-pane-body" id="cap-final-pane"><div class="cap-pane-empty">Confirmed segments appear here after 15s</div></div></div>';
     h+='</div>';
+    h+='<div id="cap-tx" style="display:none"></div>';
     h+='<div class="cap-row"><button class="cap-btn" id="cap-brk" style="flex:1">⏸ Take a Break</button><button class="cap-btn red" id="cap-stp" style="flex:1">■ Stop Session</button></div>';
   }
 
@@ -624,13 +646,14 @@ function startCloudSR(){
     for(let i=e.resultIndex;i<e.results.length;i++){
       if(e.results[i].isFinal){
         const t=(e.results[i][0].transcript||'').trim();
-        if(t){addToTranscript(t,_currentSpk);}
+        if(t){_cloudInterim='';addToTranscript(t,_currentSpk,'cloud');}
       }else interim+=e.results[i][0].transcript;
     }
     if(interim){
+      _cloudInterim=interim;
       const im=_root&&_root.querySelector('.cap-interim');
       if(im)im.textContent=interim;
-      else{const tx=_root&&_root.querySelector('#cap-tx');if(tx&&!tx.querySelector('.cap-interim')){const d=document.createElement('div');d.className='cap-interim';d.textContent=interim;tx.appendChild(d);tx.scrollTop=tx.scrollHeight;}}
+      updateLivePanel();
     }
   };
   _sr.onerror=function(ev){
@@ -662,8 +685,8 @@ async function loadWhisper(){
   try{
     const mod=await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/dist/transformers.min.js');
     const {pipeline,env}=mod;env.allowLocalModels=false;env.useBrowserCache=true;
-    setMsg('📥 Downloading offline engine (one-time ~150MB)...');
-    _whisper=await pipeline('automatic-speech-recognition','Xenova/whisper-base.en',{
+    setMsg('📥 Downloading offline engine (one-time ~75MB)...');
+    _whisper=await pipeline('automatic-speech-recognition','Xenova/whisper-tiny.en',{
       progress_callback:function(data){
         if(data.status==='progress'&&data.progress!=null){
           _wProgress=Math.round(data.progress);
@@ -710,7 +733,7 @@ async function whisperLoop(){
     if(!_whisper){await _sleep(500);continue;}
     
     /* Minimum audio required before processing */
-    var minSamples=_running?_captureSR*3:_captureSR*1; /* 3s while running, 1s at end */
+    var minSamples=_running?_captureSR*2:_captureSR*1; /* 2s while running, 1s at end */
     
     if(totalSamples<minSamples){
       if(_running){/* Show progress so user knows next segment is coming */
@@ -722,7 +745,7 @@ async function whisperLoop(){
     
     /* Process — max 15s per segment (prevents huge backlog chunks) */
     await processSegmentFromBuffer();
-    await _sleep(50);
+    await _sleep(10);
   }
   _segTimer=null; /* mark loop as stopped */
 }
@@ -744,7 +767,7 @@ async function processSegmentFromBuffer(){
     var pcm=new Float32Array(len);
     var off=0;for(var i=0;i<chunks.length;i++){pcm.set(chunks[i],off);off+=chunks[i].length;}
     /* ── Cap to max 15s per segment, put overflow back into buffer ── */
-    var MAX_PCM=Math.floor(_captureSR*8); /* 8s max per segment for faster results */
+    var MAX_PCM=Math.floor(_captureSR*5); /* 5s max — tiny processes in ~2s */
     if(pcm.length>MAX_PCM){
       _pcmChunks.unshift(pcm.slice(MAX_PCM)); /* return overflow to front of queue */
       pcm=pcm.slice(0,MAX_PCM);
@@ -894,6 +917,73 @@ function float32ToWav(samples,sr){
   return new Blob([buf],{type:'audio/wav'});
 }
 
+/* ── Dual-track transfer: move draft to final panel after 15s ──────────────
+   For same speaker within a 10s window, keep the LONGER text (more words = 
+   better recognition). This fills gaps — cloud fills whisper's blanks and
+   vice versa. Result moves to the final transcript panel. */
+function transferToFinal(){
+  if(!_draft.length)return;
+  const cutoff=_elapsed-15;
+  const ready=_draft.filter(function(l){return(l.sec||0)<=cutoff;});
+  if(!ready.length)return;
+  _draft=_draft.filter(function(l){return(l.sec||0)>cutoff;});
+  /* Merge overlapping cloud+whisper results for same time window */
+  var merged=[];
+  ready.forEach(function(l){
+    var last=merged[merged.length-1];
+    if(last&&last.spk===l.spk&&Math.abs((l.sec||0)-(last.sec||0))<=10){
+      /* Same speaker, same window — keep the one with MORE words (gap fill) */
+      var lWords=l.s.trim().split(/\s+/).length;
+      var lastWords=last.s.trim().split(/\s+/).length;
+      if(lWords>lastWords){last.s=l.s;last.sec=l.sec;} /* longer wins */
+    }else{
+      merged.push({t:l.t,s:l.s,spk:l.spk,sec:l.sec});
+    }
+  });
+  /* Add to confirmed + _lines (for download compatibility) */
+  merged.forEach(function(l){
+    _confirmed.push(l);
+    _lines.push(l);
+  });
+  updateFinalPanel();
+}
+
+function updateLivePanel(){
+  var pane=_root&&_root.querySelector('#cap-live-pane');
+  if(!pane)return;
+  var h='';
+  /* Interim text (cloud STT real-time, before finalized) */
+  if(_cloudInterim){
+    h+='<div class="cap-interim-live">'+esc(_cloudInterim)+'<span class="cap-cursor">|</span></div>';
+  }
+  /* Recent draft lines */
+  var recent=_draft.slice(-8); /* last 8 draft items */
+  groupLines(recent).forEach(function(g){h+=speakerCardMini(g);});
+  if(!h)h='<div class="cap-pane-empty">Listening...</div>';
+  pane.innerHTML=h;
+  pane.scrollTop=pane.scrollHeight;
+}
+
+function updateFinalPanel(){
+  var pane=_root&&_root.querySelector('#cap-final-pane');
+  if(!pane)return;
+  var h='';
+  groupLines(_confirmed).forEach(function(g){h+=speakerCard(g);});
+  if(!h)h='<div class="cap-pane-empty">Confirmed segments will appear here</div>';
+  pane.innerHTML=h;
+  pane.scrollTop=pane.scrollHeight;
+}
+
+/* Compact card for live panel */
+function speakerCardMini(l){
+  var spk=l.spk||'Speaker 1';
+  var cls=spk==='Speaker 2'?'cap-spk2-card':'cap-spk1-card';
+  var nc=spk==='Speaker 2'?'cap-spk2-name':'cap-spk1-name';
+  return '<div class="cap-spk-card cap-spk-mini '+cls+'">'+
+    '<span class="'+nc+'">'+esc(spk)+'</span> <span class="cap-spk-time">['+l.t+']</span>'+
+    '<div class="cap-spk-text" style="font-size:12px">'+wrapWords(esc(l.s),10)+'</div></div>';
+}
+
 function dedupBoundary(prevText,newText){
   /* Remove words at the start of newText that duplicate the end of
      prevText — caused by the 1.5s overlap between segments. */
@@ -911,7 +1001,7 @@ function dedupBoundary(prevText,newText){
   return newText;
 }
 
-function addToTranscript(text,spk){
+function addToTranscript(text,spk,source){
   text=(text||'').trim().replace(/^\(.*?\)$|^\[.*?\]$/g,'').trim();
   if(!text||text==='...')return;
   /* Dedup overlap against previous same-speaker segment */
@@ -920,7 +1010,8 @@ function addToTranscript(text,spk){
     text=dedupBoundary(last.s,text);
   }
   if(!text.trim())return;
-  _lines.push({t:fmt(_elapsed),s:text,spk:spk,sec:_elapsed});
+  source=source||'whisper';
+  _draft.push({t:fmt(_elapsed),s:text,spk:spk,sec:_elapsed,src:source});
   liveUpdate();
 }
 
@@ -1006,6 +1097,11 @@ function doStop(){
   if(_sr){try{_sr.abort();}catch(e){}_sr=null;}
   if(_whisperRec&&_whisperRec.state==='recording'){try{_whisperRec.stop();}catch(e){}}_whisperRec=null;
   stopContinuousCapture();_mixer=null;
+  if(_transferTimer){clearInterval(_transferTimer);_transferTimer=null;}
+  /* Flush remaining draft to final */
+  _elapsed=_elapsed||0;
+  _draft.forEach(function(l){_confirmed.push(l);_lines.push(l);});
+  _draft=[];
   if(_rec&&_rec.state!=='inactive')_rec.stop();
   if(_mic)_mic.getTracks().forEach(function(t){t.stop();});
   if(_sys)_sys.getTracks().forEach(function(t){t.stop();});
