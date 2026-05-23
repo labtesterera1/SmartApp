@@ -695,23 +695,35 @@ function startContinuousCapture(){
 }
 
 async function whisperLoop(){
-  /* Tight loop: accumulate ≥5s audio → process → repeat. Zero idle time. */
-  const MIN_SEC=5;
+  /* Continuous transcription loop:
+     - While RUNNING: accumulate ≥5s before processing (better context)
+     - After SESSION ENDS: process remaining ≥1s audio (flush)
+     - Then exit cleanly */
   while(_running||_pcmChunks.length>0){
-    /* Wait if paused */
     if(_paused){await _sleep(500);continue;}
+    
     /* Count buffered audio */
-    let totalSamples=0;
-    for(let i=0;i<_pcmChunks.length;i++)totalSamples+=_pcmChunks[i].length;
-    const bufferedSec=totalSamples/_captureSR;
-    /* Wait until we have MIN_SEC seconds (or session ended with leftover) */
-    if(bufferedSec<MIN_SEC&&_running){await _sleep(300);continue;}
-    if(totalSamples<_captureSR*1){await _sleep(200);continue;} /* <1s skip */
+    var totalSamples=0;
+    for(var i=0;i<_pcmChunks.length;i++)totalSamples+=_pcmChunks[i].length;
+    
+    /* Minimum audio required before processing */
+    var minSamples=_running?_captureSR*5:_captureSR*1; /* 5s while running, 1s at end */
+    
+    if(totalSamples<minSamples){
+      if(_running){
+        /* Waiting for more audio while session is active */
+        await _sleep(300);continue;
+      }else{
+        /* Session ended and buffer is nearly empty — flush done */
+        break;
+      }
+    }
+    
     /* Process immediately */
     await processSegmentFromBuffer();
-    await _sleep(50); /* tiny yield for UI */
+    await _sleep(50);
   }
-  _segTimer=null;
+  _segTimer=null; /* mark loop as stopped */
 }
 
 function _sleep(ms){return new Promise(function(r){setTimeout(r,ms);});}
