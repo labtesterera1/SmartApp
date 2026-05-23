@@ -839,44 +839,39 @@ function stopContinuousCapture(){
 
 /* ── Whisper output sanitizer ────────────────────────────── */
 function sanitize(raw){
-  if(!raw)return '';
-  /* 1. Hard skip if extremely long — hallucination detected */
-  if(raw.length>400){
-    setMsg('⚠ Hallucination detected — segment skipped');
-    return '';
+  if(!raw||!raw.trim())return '';
+  if(raw.length>400){setMsg('⚠ Hallucination — too long');return '';}
+  var t=raw.trim();
+  /* 1. Character stutter: "EPPPP" → "EP" */
+  t=t.replace(/(.)(\1){3,}/g,'$1$1');
+  /* 2. Substring loop: "testestest" → "test" */
+  t=t.replace(/(\w{2,6})\1{2,}/gi,'$1');
+  /* 3. Consecutive word repeat including apostrophes: "it's it's it's it's" → "it's" */
+  t=t.replace(/(\S+)(\s+\1){3,}/gi,'$1');
+  /* 4. Word frequency analysis: if any word appears >35% of total = hallucination */
+  var words=t.toLowerCase().replace(/[^a-z\s]/g,' ').split(/\s+/).filter(function(w){return w.length>0;});
+  if(words.length>4){
+    var freq={};
+    for(var wi=0;wi<words.length;wi++){var wk=words[wi];freq[wk]=(freq[wk]||0)+1;}
+    var maxF=0;for(var fk in freq){if(freq[fk]>maxF)maxF=freq[fk];}
+    if(maxF/words.length>0.35){setMsg('⚠ Repeated word filtered');return '';}
   }
-  let t=raw.trim();
-  /* Remove character stutters: "EPPPP" → "EP" */
-  t=t.replace(/(.)\1{3,}/g,'$1$1');
-  /* Remove substring loops: "testestestest" → "test" */
-  t=t.replace(/(\w{2,6})\1{2,}/gi,'$1'); /* catch 3+ repetitions of any 2-6 char substring */
-  /* Remove word-level repetition: "content content content" → "content" */
-  t=t.replace(/\b(\w{3,})(?:\s+\1){2,}\b/gi,'$1');
-  /* Remove any single "word" longer than 25 chars — always a hallucination */
+  /* 5. Remove any word > 25 chars */
   t=t.split(' ').filter(function(w){return w.length<=25;}).join(' ');
-  /* Hard skip if result is now mostly garbage (< 3 real words left) */
-  if(t.split(' ').filter(function(w){return w.length>1;}).length<2)return '';
-  /* 2. Remove music/sound markers */
-  t=t.replace(/\(.*?music.*?\)/gi,'').replace(/\[.*?music.*?\]/gi,'')
-     .replace(/\(.*?applause.*?\)/gi,'').replace(/\(.*?noise.*?\)/gi,'').trim();
-  if(!t)return '';
-  /* 3. Dedup repeated phrases (Whisper hallucination pattern)
-        "good enough, good enough, good enough..." → "good enough" */
-  const parts=t.split(/\s*[,\.!?]\s*/);
-  const seen={};const result=[];
-  let consecRep=0;
-  for(let i=0;i<parts.length;i++){
-    const key=(parts[i]||'').trim().toLowerCase();
-    if(!key)continue;
-    seen[key]=(seen[key]||0)+1;
-    if(seen[key]<=2&&result.length<60){result.push(parts[i].trim());consecRep=0;}
-    else{consecRep++;if(consecRep===1)result.push('...');if(consecRep>3)break;}
+  /* 6. Non-speech markers */
+  if(/\[.*\]|\*.*\*|dramatic|music|sound effect|cue the|banner/i.test(t))return '';
+  /* 7. Gibberish check */
+  if(t.length>10){
+    var caps=0,syms=0;
+    for(var ci=0;ci<t.length;ci++){var c=t[ci];if(c>='A'&&c<='Z')caps++;if('[]{}<>*'.indexOf(c)>=0)syms++;}
+    if(caps/t.length>0.5||syms/t.length>0.3)return '';
   }
-  t=result.join(', ').replace(/,\s*\.\.\.\s*,/g,', ...').trim();
-  /* 4. Final hard cap */
-  if(t.length>400)t=t.slice(0,400)+'...';
-  return t;
+  /* 8. Must have at least 2 real words */
+  if(t.split(' ').filter(function(w){return w.length>1;}).length<2)return '';
+  if(t.length>400)t=t.slice(0,400);
+  return t.trim();
 }
+
 
 async function processBlob(blob){
   if(!_whisper)return;
