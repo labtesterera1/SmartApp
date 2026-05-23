@@ -599,7 +599,7 @@ function startCloudSR(){
     for(let i=e.resultIndex;i<e.results.length;i++){
       if(e.results[i].isFinal){
         const t=(e.results[i][0].transcript||'').trim();
-        if(t){_lines.push({t:fmt(_elapsed),s:t,spk:_currentSpk});liveUpdate();}
+        if(t){addToTranscript(t,_currentSpk);}
       }else interim+=e.results[i][0].transcript;
     }
     if(interim){
@@ -729,11 +729,11 @@ async function processBlob(blob){
     let result;
     try{
       /* max_new_tokens: hard-stops generation at ~80 words — prevents hallucination hang */
-      result=await _whisper(url,{max_new_tokens:128,chunk_length_s:10,stride_length_s:2});
+      result=await _whisper(url,{max_new_tokens:150,chunk_length_s:30,stride_length_s:3});
     }finally{URL.revokeObjectURL(url);}
     const raw=(result&&result.text)||'';
     const text=sanitize(raw.replace(/\[BLANK_AUDIO\]/gi,'').replace(/Thanks for watching.*/gi,''));
-    if(text&&text!=='...'){_lines.push({t:fmt(_elapsed),s:text,spk:spk});liveUpdate();setMsg('✓ '+text.slice(0,45));}
+    if(text&&text!=='...'){addToTranscript(text,spk);setMsg('✓ '+text.slice(0,45));}
     else if(!text){setMsg('○ Silence or music — skipped');}
   }catch(e){setMsg('⚠ '+e.message.slice(0,40));}
 }
@@ -746,6 +746,20 @@ function float32ToWav(samples,sr){
   v.setUint16(32,2,true);v.setUint16(34,16,true);ws(36,'data');v.setUint32(40,samples.length*2,true);
   let off=44;for(let i=0;i<samples.length;i++){const x=Math.max(-1,Math.min(1,samples[i]));v.setInt16(off,x<0?x*0x8000:x*0x7FFF,true);off+=2;}
   return new Blob([buf],{type:'audio/wav'});
+}
+
+function addToTranscript(text,spk){
+  text=(text||'').trim().replace(/^\(.*\)$|^\[.*\]$/,'').trim();
+  if(!text||text==='...')return;
+  const last=_lines[_lines.length-1];
+  const gap=last?(_elapsed-(last.sec||0)):999;
+  if(last&&last.spk===spk&&gap<=120){
+    last.s=last.s.trim()+' '+text;
+    last.sec=_elapsed;
+  }else{
+    _lines.push({t:fmt(_elapsed),s:text,spk:spk,sec:_elapsed});
+  }
+  liveUpdate();
 }
 
 function liveUpdate(){
@@ -927,7 +941,7 @@ async function doFileUpload(){
         result=await _whisper(url,{max_new_tokens:128});
       }finally{URL.revokeObjectURL(url);}
       const text=sanitize(((result&&result.text)||'').replace(/\[BLANK_AUDIO\]/gi,'').replace(/Thanks for watching.*/gi,''));
-      if(text){_lines.push({t:fmtSec(i*10),s:text,spk:spk});const txEl=_root&&_root.querySelector('#cap-tx');if(txEl){let h2='';_lines.forEach(function(l){h2+=speakerCard(l);});txEl.innerHTML=h2;txEl.scrollTop=txEl.scrollHeight;}}
+      if(text){addToTranscript(text,spk);const txEl=_root&&_root.querySelector('#cap-tx');if(txEl){let h2='';_lines.forEach(function(l){h2+=speakerCard(l);});txEl.innerHTML=h2;txEl.scrollTop=txEl.scrollHeight;}}
       await new Promise(r=>setTimeout(r,100));
     }
     if(_lines.length){addSession({id:uid(),title:_title,trainingName:_trainingName,date:new Date().toLocaleDateString('en-IN'),createdAt:Date.now(),elapsed:_elapsed,lines:[..._lines],wc:wc(_lines)});toast('Done — '+_lines.length+' segments');}
