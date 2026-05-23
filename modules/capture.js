@@ -61,6 +61,7 @@ function injectCSS(){
     '.cap-lbl{font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:#444;margin:12px 0 5px}'+
     '.cap-inp{display:block;width:100%;padding:9px 11px;background:#141414;border:1px solid #2a2a2a;color:#ddd;font-size:13px;margin-bottom:10px;box-sizing:border-box;font-family:inherit}'+
     '.cap-inp:focus{outline:1px solid #d4ff3a;border-color:#d4ff3a}'+
+    '.cap-inp option{background:#141414;color:#ddd}'+
     '.cap-infobox{margin-bottom:12px}'+
     '.cap-info{display:flex;align-items:flex-start;gap:9px;padding:7px 11px;background:#141414;border:1px solid #222;margin-bottom:3px;font-size:11px;color:#666;line-height:1.5}'+
     '.cap-info.warn{border-color:#e8b867;color:#e8b867}'+
@@ -256,8 +257,10 @@ function renderRecord(){
 
   /* IDLE — Colibri-style session setup form */
   if(!_running&&!_paused&&!_lines.length&&!_chunks.length&&!_connLost){
-    h+='<div class="cap-lbl">Session title</div>';
-    h+='<input class="cap-inp" id="cap-ttl" type="text" placeholder="e.g. CyberArk Training Day 1" value="'+esc(_title)+'">';
+    h+='<div class="cap-lbl">Training / Course name</div>';
+    h+='<input class="cap-inp" id="cap-trn" type="text" placeholder="e.g. CyberArk Privilege Cloud Administration" value="'+esc(_trainingName)+'">';
+    h+='<div class="cap-lbl">Session / Meeting name</div>';
+    h+='<input class="cap-inp" id="cap-ttl" type="text" placeholder="e.g. Logon and Reconcile Account Configuration" value="'+esc(_title)+'">';
     h+='<div class="cap-lbl">Participants <span style="color:#333;font-size:9px;letter-spacing:0;text-transform:none">(optional)</span></div>';
     h+='<input class="cap-inp" id="cap-pax" type="text" placeholder="e.g. Ishank Tyagi, John Doe" value="'+esc(_participants)+'">';
     h+='<div class="cap-lbl">Organization <span style="color:#333;font-size:9px;letter-spacing:0;text-transform:none">(optional)</span></div>';
@@ -453,7 +456,13 @@ function bind(){
 /* ── Start ───────────────────────────────────────────────── */
 async function doStart(){
   const te=_root&&_root.querySelector('#cap-ttl');
-  _title=te?te.value.trim():'Training Session';
+  _title=(te?te.value.trim():'')||'Training Session';
+  const trnEl2=_root&&_root.querySelector('#cap-trn');
+  if(trnEl2&&trnEl2.value.trim())_trainingName=trnEl2.value.trim();
+  const paxEl2=_root&&_root.querySelector('#cap-pax');
+  if(paxEl2&&paxEl2.value.trim())_participants=paxEl2.value.trim();
+  const orgEl2=_root&&_root.querySelector('#cap-org');
+  if(orgEl2&&orgEl2.value.trim())_organization=orgEl2.value.trim();
   _netErr=0;_mode='cloud';_connLost=false;_captureReady=false;
   _lines=[];_elapsed=0;_sizeLevel=0;_speakers=[];_currentSpk='Speaker 1';
   _running=true;_paused=false;
@@ -893,19 +902,19 @@ function dlPdf(s){
   try{
     const doc=new JsPDF({orientation:'portrait',unit:'mm',format:'a4'});
     const pW=210,pH=297,mg=15,cW=pW-mg*2;let y=mg;
-    const C={dark:[30,30,30],muted:[140,140,140],blue:[67,97,238],green:[46,125,50],border:[220,220,220]};
+    const Cdark=[30,30,30],Cmuted=[140,140,140],Cblue=[67,97,238],Cgreen=[46,125,50],Cborder=[220,220,220];
     function chk(n){if(y+n>pH-mg-8){doc.addPage();y=mg;}}
 
     /* Header */
-    if(s.trainingName){doc.setFontSize(8);doc.setFont('helvetica','normal');doc.setTextColor(...C.muted);doc.text(s.trainingName.toUpperCase(),mg,y);y+=5;}
-    doc.setFontSize(17);doc.setFont('helvetica','bold');doc.setTextColor(...C.dark);
+    if(s.trainingName){doc.setFontSize(8);doc.setFont('helvetica','normal');doc.setTextColor(...Cmuted);doc.text(s.trainingName.toUpperCase(),mg,y);y+=5;}
+    doc.setFontSize(17);doc.setFont('helvetica','bold');doc.setTextColor(...Cdark);
     const tl=doc.splitTextToSize(s.title||'Session',cW);doc.text(tl,mg,y);y+=tl.length*7+2;
-    doc.setFontSize(9);doc.setFont('helvetica','normal');doc.setTextColor(...C.muted);
+    doc.setFontSize(9);doc.setFont('helvetica','normal');doc.setTextColor(...Cmuted);
     doc.text([s.date||'',fmt(s.elapsed||0),(s.wc||0).toLocaleString()+' words',(s.lines||[]).length+' segments'].join('  ·  '),mg,y);y+=5;
-    if(s.participants){doc.setTextColor(...C.blue);doc.setFontSize(9);doc.text('Participants: '+s.participants,mg,y);y+=5;}
-    if(s.organization){doc.setTextColor(...C.muted);doc.setFontSize(9);doc.text('Organization: '+s.organization,mg,y);y+=5;}
-    y+=2;doc.setDrawColor(...C.border);doc.setLineWidth(0.3);doc.line(mg,y,pW-mg,y);y+=7;
-    doc.setFontSize(9);doc.setFont('helvetica','bold');doc.setTextColor(...C.muted);doc.text('TRANSCRIPT',mg,y);y+=7;
+    if(s.participants){doc.setTextColor(...Cblue);doc.setFontSize(9);doc.text('Participants: '+s.participants,mg,y);y+=5;}
+    if(s.organization){doc.setTextColor(...Cmuted);doc.setFontSize(9);doc.text('Organization: '+s.organization,mg,y);y+=5;}
+    y+=2;doc.setDrawColor(...Cborder);doc.setLineWidth(0.3);doc.line(mg,y,pW-mg,y);y+=7;
+    doc.setFontSize(9);doc.setFont('helvetica','bold');doc.setTextColor(...Cmuted);doc.text('TRANSCRIPT',mg,y);y+=7;
 
     /* Transcript entries */
     (s.lines||[]).forEach(function(line,idx){
@@ -917,14 +926,14 @@ function dlPdf(s){
       const tLines=doc.splitTextToSize(line.s||'',cW-20);
       chk(16+tLines.length*5+6);
       /* Circle */
-      doc.setFillColor(...circ);doc.circle(mg+5,y+4,5,'F');
+      doc.setFillColor(circ[0],circ[1],circ[2]);doc.circle(mg+5,y+4,5,'F');
       doc.setFontSize(7);doc.setFont('helvetica','bold');doc.setTextColor(255,255,255);
       doc.text(init,mg+5,y+6,{align:'center'});
       /* Name */
-      doc.setFontSize(10);doc.setFont('helvetica','bold');doc.setTextColor(...C.dark);
+      doc.setFontSize(10);doc.setFont('helvetica','bold');doc.setTextColor(...Cdark);
       doc.text(spk,mg+13,y+6);
       /* Timestamp */
-      doc.setFontSize(9);doc.setFont('helvetica','normal');doc.setTextColor(...C.muted);
+      doc.setFontSize(9);doc.setFont('helvetica','normal');doc.setTextColor(...Cmuted);
       doc.text(line.t||'',pW-mg,y+6,{align:'right'});
       /* Text */
       y+=12;doc.setFontSize(10);doc.setFont('helvetica','normal');doc.setTextColor(60,60,60);
@@ -934,7 +943,7 @@ function dlPdf(s){
 
     /* Footer */
     const tot=doc.getNumberOfPages();
-    for(let i=1;i<=tot;i++){doc.setPage(i);doc.setFontSize(8);doc.setFont('helvetica','normal');doc.setTextColor(...C.muted);doc.text('SmartApp · ScreenAudioCapture',mg,pH-6);doc.text(i+' / '+tot,pW-mg,pH-6,{align:'right'});}
+    for(let i=1;i<=tot;i++){doc.setPage(i);doc.setFontSize(8);doc.setFont('helvetica','normal');doc.setTextColor(...Cmuted);doc.text('SmartApp · ScreenAudioCapture',mg,pH-6);doc.text(i+' / '+tot,pW-mg,pH-6,{align:'right'});}
 
     doc.save((s.title||'session').replace(/[^a-z0-9]/gi,'-').toLowerCase()+'-transcript.pdf');
     toast('PDF downloaded');
