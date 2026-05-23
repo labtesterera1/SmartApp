@@ -741,9 +741,10 @@ async function processSegmentFromBuffer(){
       var idx=j*ratio,i0=Math.floor(idx),i1=Math.min(i0+1,pcm.length-1);
       rs[j]=pcm[i0]*(1-(idx-i0))+pcm[i1]*(idx-i0);
     }
-    /* ── Skip silence ── */
-    var peak=0;for(var j=0;j<rs.length;j++){var v=Math.abs(rs[j]);if(v>peak)peak=v;}
-    if(peak<0.003){_segProcessing=false;setMsg('○ Listening...');return;}
+    /* ── Skip silence/noise: use RMS energy (more robust than peak) ── */
+    var sum=0;for(var j=0;j<rs.length;j++){sum+=rs[j]*rs[j];}
+    var rms=Math.sqrt(sum/rs.length);
+    if(rms<0.002){_segProcessing=false;setMsg('○ Listening...');return;}
     /* ── Normalize audio for better recognition ── */
     if(peak>0&&peak<0.5){var gain=0.5/peak;for(var j=0;j<rs.length;j++)rs[j]*=gain;}
     /* ── Speaker detect ── */
@@ -757,7 +758,22 @@ async function processSegmentFromBuffer(){
     }finally{URL.revokeObjectURL(url);}
     var raw=(result&&result.text)||'';
     var text=sanitize(raw.replace(/\[BLANK_AUDIO\]/gi,'').replace(/Thanks for watching.*/gi,''));
+    /* Skip if result is gibberish (all-caps or too many punctuation/symbols) */
+    if(text&&text.length>10){
+      var caps=0,punct=0;for(var j=0;j<text.length;j++){
+        var c=text[j];
+        if(c>='A'&&c<='Z')caps++;
+        if('[]{}<>(),.!?*-/'.indexOf(c)>=0)punct++;
+      }
+      if(caps/text.length>0.5||punct/text.length>0.3){setMsg('○ (gibberish filtered)');_segProcessing=false;return;}
+    }
     if(text&&text!=='...'){
+      /* ── Skip non-speech: music, sound effects, stage directions ── */
+      const nonSpeech=/\[.*\]|\*.*\*|^_|banner|dramatic|music|sound effect|game|instrumental|cue the|song|track|applause|laughter|music box|upbeat/i;
+      if(nonSpeech.test(text)){
+        setMsg('○ (background audio filtered)');
+        _segProcessing=false;return;
+      }
       /* Basic punctuation if missing */
       text=text.charAt(0).toUpperCase()+text.slice(1);
       if(!/[.!?;]$/.test(text))text+='.';
