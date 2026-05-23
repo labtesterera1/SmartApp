@@ -36,6 +36,7 @@ function injectCSS(){
     '.cap-startup-step.waiting{color:#333}'+
     '.cap-startup-icon{font-size:12px;flex-shrink:0;width:16px}'+
     '.cap-ready-banner{background:#0d1a0d;border:1px solid #3a6a1a;padding:10px 14px;margin-bottom:10px;display:flex;align-items:center;gap:8px;font-size:11px;color:#6aba2a}'+
+    '.cap-ready-banner.cap-writing{background:#1a1500;border-color:#8a7000;color:#e8b867;animation:cpblink 0.8s ease-in-out infinite}'+
     /* mode bar */
     '.cap-mbar{display:flex;align-items:center;gap:8px;padding:7px 11px;margin-bottom:8px;font-size:10px;border:1px solid #2a2a2a;flex-wrap:wrap}'+
     '.cap-mbar.cloud{background:#0d110d;border-color:#3a5a1a}'+
@@ -142,6 +143,8 @@ let _timer=null,_lvlTimer=null,_offlineTimer=null;
 let _mic=null,_sys=null,_ctx=null,_rec=null,_sr=null;
 let _chunks=[],_hasSys=false,_analyser=null;
 let _mixDest=null,_whisperRec=null,_whisperBusy=false;
+let _mixer=null,_pcmChunks=[],_scriptNode=null,_segTimer=null,_segProcessing=false,_captureSR=48000;
+const SEG_SECONDS=15; /* process a segment every 15s — capture never stops */
 let _mode='cloud',_netErr=0,_srMsg='';
 let _whisper=null,_whisperLoading=false,_wProgress=0;
 let _connLost=false,_connReason='';
@@ -329,7 +332,7 @@ function renderRecord(){
     h+='<div class="cap-sess-meta">';
     if(_trainingName)h+='<div style="font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:#3a5a7a;margin-bottom:3px">'+esc(_trainingName)+'</div>';
     h+='<div class="cap-sess-meta-title">'+esc(_title||'Session')+'</div>';
-    h+='<div class="cap-sess-meta-sub">'+new Date().toLocaleDateString('en-IN')+' · '+fmt(_elapsed)+' · '+wcV.toLocaleString()+' words · '+_lines.length+' segments</div>';
+    h+='<div class="cap-sess-meta-sub">'+new Date().toLocaleDateString('en-IN',{timeZone:'Asia/Kolkata'})+' · '+fmt(_elapsed)+' · '+wcV.toLocaleString()+' words · '+_lines.length+' segments</div>';
     if(_participants)h+='<div class="cap-sess-meta-pax">👤 '+esc(_participants)+'</div>';
     if(_organization)h+='<div style="font-size:10px;color:#555;margin-top:2px">🏢 '+esc(_organization)+'</div>';
     h+='</div>';
@@ -431,12 +434,12 @@ function bind(){
   if(brk)brk.onclick=doPause;
   if(res)res.onclick=doResume;
   if(nw)nw.onclick=()=>{_lines=[];_elapsed=0;_title='';_chunks=[];_captureReady=false;_sizeLevel=0;_participants='';_organization='';_trainingName='';_micDevices=[];render();};
-  if(txt)txt.onclick=()=>dlTxt({title:_title,elapsed:_elapsed,lines:_lines,wc:wc(_lines),date:new Date().toLocaleDateString('en-IN')});
-  const pdfBtn=g('cap-pdf');if(pdfBtn)pdfBtn.onclick=()=>dlPdf({title:_title,trainingName:_trainingName,elapsed:_elapsed,lines:_lines,wc:wc(_lines),date:new Date().toLocaleDateString('en-IN'),participants:_participants,organization:_organization});
-  if(ppt)ppt.onclick=()=>dlPpt({title:_title,elapsed:_elapsed,lines:_lines,wc:wc(_lines),date:new Date().toLocaleDateString('en-IN')});
+  if(txt)txt.onclick=()=>dlTxt({title:_title,elapsed:_elapsed,lines:_lines,wc:wc(_lines),date:new Date().toLocaleDateString('en-IN',{timeZone:'Asia/Kolkata'})});
+  const pdfBtn=g('cap-pdf');if(pdfBtn)pdfBtn.onclick=()=>dlPdf({title:_title,trainingName:_trainingName,elapsed:_elapsed,lines:_lines,wc:wc(_lines),date:new Date().toLocaleDateString('en-IN',{timeZone:'Asia/Kolkata'}),participants:_participants,organization:_organization});
+  if(ppt)ppt.onclick=()=>dlPpt({title:_title,elapsed:_elapsed,lines:_lines,wc:wc(_lines),date:new Date().toLocaleDateString('en-IN',{timeZone:'Asia/Kolkata'})});
   if(aud)aud.onclick=dlAudio;
   if(fileBtn)fileBtn.onclick=doFileUpload;
-  if(szDl)szDl.onclick=()=>dlTxt({title:_title,elapsed:_elapsed,lines:_lines,wc:wc(_lines),date:new Date().toLocaleDateString('en-IN')});
+  if(szDl)szDl.onclick=()=>dlTxt({title:_title,elapsed:_elapsed,lines:_lines,wc:wc(_lines),date:new Date().toLocaleDateString('en-IN',{timeZone:'Asia/Kolkata'})});
   if(resConn)resConn.onclick=doResumeConn;
   if(newConn)newConn.onclick=()=>{doStop();};
   /* Sessions tab */
@@ -520,6 +523,7 @@ async function doStart(){
     _analyser=_ctx.createAnalyser();_analyser.fftSize=256;
     micSrc.connect(_analyser);
     const mixer=_ctx.createGain();mixer.gain.value=1;
+    _mixer=mixer;
     micSrc.connect(mixer);
     if(_hasSys&&_sys){
       const audioOnly=new MediaStream(_sys.getAudioTracks());
@@ -566,7 +570,7 @@ async function doStart(){
       else if(_elapsed===5400&&_sizeLevel<2){_sizeLevel=2;render();}
       else if(_elapsed===7200&&_sizeLevel<3){
         _sizeLevel=3;
-        dlTxt({title:_title,elapsed:_elapsed,lines:_lines,wc:wc(_lines),date:new Date().toLocaleDateString('en-IN')});
+        dlTxt({title:_title,elapsed:_elapsed,lines:_lines,wc:wc(_lines),date:new Date().toLocaleDateString('en-IN',{timeZone:'Asia/Kolkata'})});
         render();
       }
     }
@@ -628,7 +632,7 @@ function startCloudSR(){
 async function switchToWhisper(){
   _mode='whisper';_srMsg='Loading offline engine...';render();
   await loadWhisper();
-  startWhisperLoop();
+  startContinuousCapture();
 }
 
 async function loadWhisper(){
@@ -652,26 +656,84 @@ async function loadWhisper(){
   }catch(e){_whisperLoading=false;_mode='reconly';setMsg('Offline failed');render();}
 }
 
+/* ── CONTINUOUS CAPTURE — no gaps, no missed words ───────────
+   Audio is buffered non-stop via a ScriptProcessor. Every SEG_SECONDS
+   the buffer is grabbed (atomically) and processed on a COPY while
+   fresh audio immediately keeps filling — the mic is NEVER stopped. */
 function startWhisperLoop(){
-  if(_whisperRec||_whisperBusy)return;
-  captureSegment();
+  startContinuousCapture();
 }
 
-function captureSegment(){
-  if(!_running||_paused||!_mixDest||!_whisper){return;}
-  _whisperBusy=true;
-  const chunks=[];const m=bestMime();
-  _whisperRec=new MediaRecorder(_mixDest.stream,m?{mimeType:m}:{});
-  _whisperRec.ondataavailable=function(e){if(e.data&&e.data.size>0)chunks.push(e.data);};
-  _whisperRec.onstop=async function(){
-    _whisperBusy=false;
-    if(!chunks.length){if(_running&&!_paused)setTimeout(captureSegment,300);return;}
-    await processBlob(new Blob(chunks,{type:m||'audio/webm'}));
-    if(_running&&!_paused)setTimeout(captureSegment,300);
+function startContinuousCapture(){
+  if(!_ctx||!_mixer){setMsg('Audio pipeline not ready');return;}
+  if(_scriptNode)return; /* already running */
+  _captureSR=_ctx.sampleRate||48000;
+  _pcmChunks=[];_segProcessing=false;
+  /* ScriptProcessor captures raw PCM continuously */
+  _scriptNode=_ctx.createScriptProcessor(4096,1,1);
+  _scriptNode.onaudioprocess=function(e){
+    if(!_running||_paused)return;
+    const d=e.inputBuffer.getChannelData(0);
+    _pcmChunks.push(new Float32Array(d)); /* copy — buffer is reused */
   };
-  _whisperRec.start();
-  setTimeout(function(){if(_whisperRec&&_whisperRec.state==='recording'){try{_whisperRec.stop();}catch(e){}}},10000);
-  setMsg('🎙 Recording 10s segment...');
+  _mixer.connect(_scriptNode);
+  _scriptNode.connect(_ctx.destination); /* required for processor to run; outputs silence */
+  /* Timer grabs + processes a segment — capture continues uninterrupted */
+  _segTimer=setInterval(function(){
+    if(!_segProcessing&&_running&&!_paused)processSegmentFromBuffer();
+  },SEG_SECONDS*1000);
+  setMsg('🎙 Capturing continuously — no words missed');
+}
+
+async function processSegmentFromBuffer(){
+  if(_segProcessing||!_whisper)return;
+  if(!_pcmChunks.length)return;
+  _segProcessing=true;
+  if(_root){const rb=_root.querySelector('.cap-ready-banner');if(rb)rb.classList.add('cap-writing');}
+  setMsg('✍ Writing transcript...');
+  try{
+    /* ── Atomically grab the buffer — fresh audio fills new array, NO GAP ── */
+    const chunks=_pcmChunks;
+    _pcmChunks=[];
+    let len=0;for(let i=0;i<chunks.length;i++)len+=chunks[i].length;
+    if(len<_captureSR){_segProcessing=false;return;} /* < 1s — skip */
+    const pcm=new Float32Array(len);
+    let off=0;for(let i=0;i<chunks.length;i++){pcm.set(chunks[i],off);off+=chunks[i].length;}
+    /* ── Keep last 1.5s as overlap into next segment (boundary words) ── */
+    const tail=Math.floor(_captureSR*1.5);
+    if(pcm.length>tail)_pcmChunks.push(pcm.slice(pcm.length-tail));
+    /* ── Resample to 16kHz for Whisper ── */
+    const ratio=_captureSR/16000;
+    const outLen=Math.floor(pcm.length/ratio);
+    const rs=new Float32Array(outLen);
+    for(let i=0;i<outLen;i++){
+      const idx=i*ratio,i0=Math.floor(idx),i1=Math.min(i0+1,pcm.length-1);
+      const frac=idx-i0;rs[i]=pcm[i0]*(1-frac)+pcm[i1]*frac;
+    }
+    /* ── Silence check ── */
+    let peak=0;for(let i=0;i<rs.length;i++){const v=Math.abs(rs[i]);if(v>peak)peak=v;}
+    if(peak<0.004){_segProcessing=false;setMsg('○ Listening...');return;}
+    /* ── Speaker + Whisper ── */
+    const spk=assignSpeaker(rs);
+    const wav=float32ToWav(rs,16000);
+    const url=URL.createObjectURL(wav);
+    let result;
+    try{
+      result=await _whisper(url,{max_new_tokens:220,chunk_length_s:30,stride_length_s:5});
+    }finally{URL.revokeObjectURL(url);}
+    const raw=(result&&result.text)||'';
+    const text=sanitize(raw.replace(/\[BLANK_AUDIO\]/gi,'').replace(/Thanks for watching.*/gi,''));
+    if(text&&text!=='...'){addToTranscript(text,spk);setMsg('✓ '+text.slice(0,45));}
+    else setMsg('○ Listening...');
+  }catch(e){setMsg('⚠ '+(e.message||'error').slice(0,40));}
+  if(_root){const rb=_root.querySelector('.cap-ready-banner');if(rb)rb.classList.remove('cap-writing');}
+  _segProcessing=false;
+}
+
+function stopContinuousCapture(){
+  if(_segTimer){clearInterval(_segTimer);_segTimer=null;}
+  if(_scriptNode){try{_scriptNode.disconnect();}catch(e){}_scriptNode.onaudioprocess=null;_scriptNode=null;}
+  _pcmChunks=[];_segProcessing=false;
 }
 
 /* ── Whisper output sanitizer ────────────────────────────── */
@@ -748,13 +810,32 @@ function float32ToWav(samples,sr){
   return new Blob([buf],{type:'audio/wav'});
 }
 
+function dedupBoundary(prevText,newText){
+  /* Remove words at the start of newText that duplicate the end of
+     prevText — caused by the 1.5s overlap between segments. */
+  if(!prevText||!newText)return newText;
+  const prev=prevText.trim().toLowerCase().split(/\s+/);
+  const next=newText.trim().split(/\s+/);
+  const nextLow=next.map(function(w){return w.toLowerCase().replace(/[^a-z0-9]/g,'');});
+  const prevLow=prev.map(function(w){return w.replace(/[^a-z0-9]/g,'');});
+  const maxN=Math.min(8,prevLow.length,nextLow.length);
+  for(let n=maxN;n>=2;n--){
+    const pTail=prevLow.slice(prevLow.length-n).join(' ');
+    const nHead=nextLow.slice(0,n).join(' ');
+    if(pTail===nHead)return next.slice(n).join(' ');
+  }
+  return newText;
+}
+
 function addToTranscript(text,spk){
-  /* Clean text */
-  text=(text||'').trim()
-    .replace(/^\(.*?\)$|^\[.*?\]$/g,'')
-    .trim();
+  text=(text||'').trim().replace(/^\(.*?\)$|^\[.*?\]$/g,'').trim();
   if(!text||text==='...')return;
-  /* Store raw with second-precision timestamp for grouping */
+  /* Dedup overlap against previous same-speaker segment */
+  const last=_lines[_lines.length-1];
+  if(last&&last.spk===spk&&(_elapsed-(last.sec||0))<=SEG_SECONDS+10){
+    text=dedupBoundary(last.s,text);
+  }
+  if(!text.trim())return;
   _lines.push({t:fmt(_elapsed),s:text,spk:spk,sec:_elapsed});
   liveUpdate();
 }
@@ -796,7 +877,7 @@ function doResume(){
   if(!_paused)return;_paused=false;
   if(_rec&&_rec.state==='paused'){try{_rec.resume();}catch(e){}}
   if(_mode==='cloud')startCloudSR();
-  else if(_mode==='whisper')startWhisperLoop();
+  else if(_mode==='whisper'){if(!_scriptNode)startContinuousCapture();}
   toast('Capture resumed');render();
 }
 
@@ -835,13 +916,14 @@ function doStop(){
   _timer=null;_lvlTimer=null;_offlineTimer=null;
   if(_sr){try{_sr.abort();}catch(e){}_sr=null;}
   if(_whisperRec&&_whisperRec.state==='recording'){try{_whisperRec.stop();}catch(e){}}_whisperRec=null;
+  stopContinuousCapture();_mixer=null;
   if(_rec&&_rec.state!=='inactive')_rec.stop();
   if(_mic)_mic.getTracks().forEach(function(t){t.stop();});
   if(_sys)_sys.getTracks().forEach(function(t){t.stop();});
   if(_ctx){try{_ctx.close();}catch(e){}_ctx=null;}
   _analyser=null;_mixDest=null;_whisperBusy=false;
   if(_lines.length){
-    addSession({id:uid(),title:_title||'Session',trainingName:_trainingName,date:new Date().toLocaleDateString('en-IN'),createdAt:Date.now(),elapsed:_elapsed,lines:[..._lines],wc:wc(_lines),participants:_participants,organization:_organization});
+    addSession({id:uid(),title:_title||'Session',trainingName:_trainingName,date:new Date().toLocaleDateString('en-IN',{timeZone:'Asia/Kolkata'}),createdAt:Date.now(),elapsed:_elapsed,lines:[..._lines],wc:wc(_lines),participants:_participants,organization:_organization});
     toast('Session saved');
   }
   render();
@@ -959,7 +1041,7 @@ async function doFileUpload(){
       if(text){addToTranscript(text,spk);const txEl=_root&&_root.querySelector('#cap-tx');if(txEl){let h2='';_lines.forEach(function(l){h2+=speakerCard(l);});txEl.innerHTML=h2;txEl.scrollTop=txEl.scrollHeight;}}
       await new Promise(r=>setTimeout(r,100));
     }
-    if(_lines.length){addSession({id:uid(),title:_title,trainingName:_trainingName,date:new Date().toLocaleDateString('en-IN'),createdAt:Date.now(),elapsed:_elapsed,lines:[..._lines],wc:wc(_lines)});toast('Done — '+_lines.length+' segments');}
+    if(_lines.length){addSession({id:uid(),title:_title,trainingName:_trainingName,date:new Date().toLocaleDateString('en-IN',{timeZone:'Asia/Kolkata'}),createdAt:Date.now(),elapsed:_elapsed,lines:[..._lines],wc:wc(_lines)});toast('Done — '+_lines.length+' segments');}
     else toast('No speech detected','warn');
     _running=false;_paused=false;render();
   };input.click();
