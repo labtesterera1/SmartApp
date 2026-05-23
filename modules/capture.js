@@ -94,6 +94,9 @@ function injectCSS(){
     '@keyframes capblink{0%,100%{opacity:1}50%{opacity:0}}'+
     '.cap-spk-mini .cap-spk-hdr{margin-bottom:2px}'+
     '.cap-spk-mini{padding:5px 7px;margin-bottom:3px}'+
+    '.cap-proc-live{padding:8px 10px;font-size:12px;color:#888;display:flex;align-items:center;gap:8px;border-bottom:1px solid #111}'+
+    '.cap-proc-dot{width:8px;height:8px;background:#d4ff3a;border-radius:50%;animation:capblink 0.6s ease-in-out infinite;display:inline-block;flex-shrink:0}'+
+    '.cap-spk-card.cap-spk-mini{opacity:0.85}'+
     /* buttons */
     '.cap-bigbtn{width:100%;padding:14px;font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;border:none;cursor:pointer;margin-bottom:8px;border-radius:4px}'+
     '.cap-go{background:#d4ff3a;color:#0a0a0a}'+
@@ -758,6 +761,7 @@ async function processSegmentFromBuffer(){
   _segProcessing=true;
   setMsg('✍ Transcribing segment '+(_lines.length+1)+'...');
   if(_root){var rb=_root.querySelector('.cap-ready-banner');if(rb)rb.classList.add('cap-writing');}
+  updateLivePanel(); /* immediately show "Transcribing..." in live panel */
   try{
     /* ── Grab buffer atomically — NO GAP, new audio fills fresh array ── */
     var chunks=_pcmChunks;
@@ -952,14 +956,16 @@ function updateLivePanel(){
   var pane=_root&&_root.querySelector('#cap-live-pane');
   if(!pane)return;
   var h='';
-  /* Interim text (cloud STT real-time, before finalized) */
-  if(_cloudInterim){
+  /* Show active transcription indicator while Whisper is processing */
+  if(_segProcessing){
+    h+='<div class="cap-proc-live"><span class="cap-proc-dot"></span> Transcribing segment '+(_lines.length+_draft.length+1)+'...<span class="cap-cursor">|</span></div>';
+  }else if(_cloudInterim){
     h+='<div class="cap-interim-live">'+esc(_cloudInterim)+'<span class="cap-cursor">|</span></div>';
   }
-  /* Recent draft lines */
-  var recent=_draft.slice(-8); /* last 8 draft items */
+  /* All draft lines — show immediately as they arrive */
+  var recent=_draft.slice(-10);
   groupLines(recent).forEach(function(g){h+=speakerCardMini(g);});
-  if(!h)h='<div class="cap-pane-empty">Listening...</div>';
+  if(!h){h='<div class="cap-pane-empty">'+((_running&&!_paused)?'<span class="cap-cursor" style="font-size:16px;color:#333">●</span> Buffering audio...':'Waiting...')+'</div>';}
   pane.innerHTML=h;
   pane.scrollTop=pane.scrollHeight;
 }
