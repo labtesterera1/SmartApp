@@ -111,7 +111,15 @@ function injectCSS(){
     '.cap-scard-a{display:flex;gap:5px;padding:7px 13px;border-top:1px solid #1a1a1a;flex-wrap:wrap}'+
     '.cap-empty{padding:30px 0;text-align:center;color:#444;font-size:12px}'+
     '.cap-merge-bar{position:sticky;bottom:0;background:#0d0d0d;border-top:1px solid #333;padding:10px;display:flex;gap:8px;align-items:center}'+
-    '.cap-merge-count{font-size:11px;color:#d4ff3a;flex:1}';
+    '.cap-merge-count{font-size:11px;color:#d4ff3a;flex:1}'+
+    '.cap-steps{background:#0d0d0d;border:1px solid #1f3a1f;border-radius:6px;padding:12px 14px;margin-bottom:12px}'+
+    '.cap-steps-title{font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#3a6a3a;margin-bottom:8px}'+
+    '.cap-step{display:flex;align-items:flex-start;gap:10px;padding:4px 0;font-size:11px;color:#666;line-height:1.4}'+
+    '.cap-step-n{background:#1a3a1a;color:#a8d5a2;border-radius:50%;width:18px;height:18px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0;margin-top:0px}'+
+    '.cap-sess-meta{background:#0d0d0d;border:1px solid #1f1f1f;border-radius:6px;padding:12px 14px;margin-bottom:12px}'+
+    '.cap-sess-meta-title{font-size:18px;color:#e0e0e0;font-family:serif;margin-bottom:4px}'+
+    '.cap-sess-meta-sub{font-size:10px;color:#555;font-family:monospace}'+
+    '.cap-sess-meta-pax{font-size:11px;color:#7fb3d3;margin-top:4px}';
   document.head.appendChild(s);
 }
 
@@ -137,6 +145,7 @@ let _sizeLevel=0;
 let _speakers=[],_currentSpk='Speaker 1';
 let _mergeSelected=new Set();
 let _captureReady=false;
+let _participants='',_organization='',_micDeviceId='',_micDevices=[];
 
 /* ── Helpers ─────────────────────────────────────────────── */
 function fmt(s){const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),x=s%60;return h?h+':'+p2(m)+':'+p2(x):m+':'+p2(x);}
@@ -146,6 +155,18 @@ function uid(){return 'c'+Date.now().toString(36)+Math.random().toString(36).sli
 function esc(s){return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function bestMime(){const t=['audio/webm;codecs=opus','audio/webm','audio/ogg','audio/mp4'];for(const m of t){if(typeof MediaRecorder!=='undefined'&&MediaRecorder.isTypeSupported(m))return m;}return'';}
 function wc(lines){return lines.reduce((n,l)=>n+l.s.split(' ').length,0);}
+async function getMicDevices(){
+  try{
+    const devices=await navigator.mediaDevices.enumerateDevices();
+    return devices.filter(d=>d.kind==='audioinput');
+  }catch(e){return [];}
+}
+function speakerName(n){
+  /* Use participant name if provided, else generic */
+  if(!_participants)return 'Speaker '+n;
+  const names=_participants.split(',').map(p=>p.trim()).filter(Boolean);
+  return names[n-1]||'Speaker '+n;
+}
 function setMsg(m){_srMsg=m;const e=_root&&_root.querySelector('#cap-msg');if(e)e.textContent=m;}
 
 /* ── Speaker detection ───────────────────────────────────── */
@@ -233,24 +254,34 @@ function renderRecord(){
   /* Mode bar */
   if(_running||_paused){h+=renderModeBar();}
 
-  /* IDLE — startup sequence */
+  /* IDLE — Colibri-style session setup form */
   if(!_running&&!_paused&&!_lines.length&&!_chunks.length&&!_connLost){
     h+='<div class="cap-lbl">Session title</div>';
-    h+='<input class="cap-inp" id="cap-ttl" type="text" placeholder="e.g. English Training Day 1" value="'+esc(_title)+'">';
-    h+='<div class="cap-infobox">';
-    h+='<div class="cap-info"><span class="cap-tag">MIC</span>Your voice — real-time transcript</div>';
-    if(mobile){h+='<div class="cap-info off"><span class="cap-tag">SYS</span>System audio not available on mobile</div>';}
-    else{h+='<div class="cap-info"><span class="cap-tag">SYS</span>Training video / call audio via screen share</div>';}
-    if(!SR){h+='<div class="cap-info warn"><span class="cap-tag">!</span>Chrome or Edge required for transcript</div>';}
-    h+='</div>';
+    h+='<input class="cap-inp" id="cap-ttl" type="text" placeholder="e.g. CyberArk Training Day 1" value="'+esc(_title)+'">';
+    h+='<div class="cap-lbl">Participants <span style="color:#333;font-size:9px;letter-spacing:0;text-transform:none">(optional)</span></div>';
+    h+='<input class="cap-inp" id="cap-pax" type="text" placeholder="e.g. Ishank Tyagi, John Doe" value="'+esc(_participants)+'">';
+    h+='<div class="cap-lbl">Organization <span style="color:#333;font-size:9px;letter-spacing:0;text-transform:none">(optional)</span></div>';
+    h+='<input class="cap-inp" id="cap-org" type="text" placeholder="e.g. CyberArk" value="'+esc(_organization)+'">';
+    h+='<div class="cap-lbl">Microphone</div>';
+    h+='<select class="cap-inp" id="cap-mic-sel" style="cursor:pointer">';
+    h+='<option value="">Default microphone</option>';
+    _micDevices.forEach(function(d){h+='<option value="'+esc(d.deviceId)+'"'+(d.deviceId===_micDeviceId?' selected':'')+'>'+esc(d.label||'Microphone')+'</option>';});
+    h+='</select>';
     if(!mobile){
-      h+='<div class="cap-tip"><strong>Chrome:</strong> "Share system audio" · <strong>Edge:</strong> "Also share tab audio"<br>Network blocked? Whisper offline engine activates automatically.</div>';
+      h+='<div class="cap-steps">';
+      h+='<div class="cap-steps-title">How to capture system audio</div>';
+      h+='<div class="cap-step"><span class="cap-step-n">1</span><span>Click <strong>Start Capture</strong> below</span></div>';
+      h+='<div class="cap-step"><span class="cap-step-n">2</span><span>A screen share window will appear — select your tab or screen</span></div>';
+      h+='<div class="cap-step"><span class="cap-step-n">3</span><span><strong>Chrome:</strong> tick <em>"Share system audio"</em> · <strong>Edge:</strong> turn on <em>"Also share tab audio"</em></span></div>';
+      h+='<div class="cap-step"><span class="cap-step-n">4</span><span>Click <strong>Share</strong> — capture starts immediately</span></div>';
+      h+='</div>';
     }
+    if(!SR){h+='<div class="cap-info warn" style="margin-bottom:10px"><span class="cap-tag">!</span>Chrome or Edge required for live transcript</div>';}
     h+='<button class="cap-bigbtn cap-go" id="cap-start">● Start Capture</button>';
-    h+='<div style="margin-top:12px;padding-top:12px;border-top:1px solid #222">';
-    h+='<div class="cap-lbl">Or transcribe an existing audio file</div>';
-    h+='<button class="cap-btn" id="cap-file" style="width:100%;padding:11px">📂 Upload Audio File (.mp3 .wav .mp4 .webm .ogg)</button>';
-    h+='<div style="font-size:10px;color:#333;margin-top:3px;text-align:center">Processed locally with Whisper · no upload to any server</div>';
+    h+='<div style="margin-top:10px;padding-top:10px;border-top:1px solid #1a1a1a">';
+    h+='<div class="cap-lbl">Or transcribe a pre-recorded file</div>';
+    h+='<button class="cap-btn" id="cap-file" style="width:100%;padding:10px">📂 Upload Audio / Video File</button>';
+    h+='<div style="font-size:10px;color:#2a2a2a;margin-top:3px;text-align:center">Processed locally — no upload to any server</div>';
     h+='</div>';
   }
 
@@ -289,7 +320,12 @@ function renderRecord(){
   /* DONE */
   if(!_running&&!_paused&&(_lines.length||_chunks.length)){
     const wcV=wc(_lines);
-    h+='<div class="cap-donebar"><b>Session complete</b><span>'+fmt(_elapsed)+' · '+wcV.toLocaleString()+' words · '+_lines.length+' segments</span></div>';
+    h+='<div class="cap-sess-meta">';
+    h+='<div class="cap-sess-meta-title">'+esc(_title||'Session')+'</div>';
+    h+='<div class="cap-sess-meta-sub">'+new Date().toLocaleDateString('en-IN')+' · '+fmt(_elapsed)+' · '+wcV.toLocaleString()+' words · '+_lines.length+' segments</div>';
+    if(_participants)h+='<div class="cap-sess-meta-pax">👤 '+esc(_participants)+'</div>';
+    if(_organization)h+='<div style="font-size:10px;color:#555;margin-top:2px">🏢 '+esc(_organization)+'</div>';
+    h+='</div>';
     h+='<div class="cap-row">';
     h+='<button class="cap-btn" id="cap-new">New Session</button>';
     if(_lines.length){h+='<button class="cap-btn" id="cap-txt">Download TXT</button><button class="cap-btn" id="cap-ppt">Download PPT</button>';}
@@ -336,7 +372,9 @@ function renderSessions(sessions){
     h+='<div class="cap-scard"><div class="cap-scard-h">';
     h+='<input type="checkbox" class="cap-scard-chk" data-id="'+esc(s.id)+'"'+(isSel?' checked':'')+' />';
     h+='<div class="cap-scard-info"><div class="cap-scard-t">'+esc(s.title)+'</div>';
-    h+='<div class="cap-scard-m">'+esc(s.date||'')+' · '+fmt(s.elapsed)+' · '+(s.wc||0).toLocaleString()+' words</div></div></div>';
+    h+='<div class="cap-scard-m">'+esc(s.date||'')+' · '+fmt(s.elapsed)+' · '+(s.wc||0).toLocaleString()+' words</div>';
+    if(s.participants)h+='<div style="font-size:10px;color:#3a5a7a;margin-top:1px">👤 '+esc(s.participants)+'</div>';
+    h+='</div></div>';
     if(s.lines&&s.lines[0])h+='<div class="cap-scard-p">'+esc(s.lines[0].s.slice(0,80))+'</div>';
     h+='<div class="cap-scard-a">';
     h+='<button class="cap-btn" data-id="'+esc(s.id)+'" data-a="view">View</button>';
@@ -360,11 +398,21 @@ function bind(){
   const start=g('cap-start'),stp=g('cap-stp'),brk=g('cap-brk'),res=g('cap-res');
   const nw=g('cap-new'),txt=g('cap-txt'),ppt=g('cap-ppt'),aud=g('cap-audio'),fileBtn=g('cap-file');
   const szDl=g('cap-sz-dl'),resConn=g('cap-resume-conn'),newConn=g('cap-new-conn');
+  /* Load mic devices for dropdown */
+  if(!_micDevices.length){getMicDevices().then(function(devs){if(devs.length){_micDevices=devs;
+    const sel=_root&&_root.querySelector('#cap-mic-sel');
+    if(sel){sel.innerHTML='<option value="">Default microphone</option>'+devs.map(function(d){return '<option value="'+esc(d.deviceId)+'"'+(d.deviceId===_micDeviceId?' selected':'')+'>'+esc(d.label||'Microphone')+'</option>';}).join('');}}});}
+  const paxEl=_root&&_root.querySelector('#cap-pax');
+  const orgEl=_root&&_root.querySelector('#cap-org');
+  const micSel=_root&&_root.querySelector('#cap-mic-sel');
+  if(paxEl)paxEl.oninput=function(){_participants=paxEl.value;};
+  if(orgEl)orgEl.oninput=function(){_organization=orgEl.value;};
+  if(micSel)micSel.onchange=function(){_micDeviceId=micSel.value;};
   if(start)start.onclick=doStart;
   if(stp)stp.onclick=doStop;
   if(brk)brk.onclick=doPause;
   if(res)res.onclick=doResume;
-  if(nw)nw.onclick=()=>{_lines=[];_elapsed=0;_title='';_chunks=[];_captureReady=false;_sizeLevel=0;render();};
+  if(nw)nw.onclick=()=>{_lines=[];_elapsed=0;_title='';_chunks=[];_captureReady=false;_sizeLevel=0;_participants='';_organization='';_micDevices=[];render();};
   if(txt)txt.onclick=()=>dlTxt({title:_title,elapsed:_elapsed,lines:_lines,wc:wc(_lines),date:new Date().toLocaleDateString('en-IN')});
   if(ppt)ppt.onclick=()=>dlPpt({title:_title,elapsed:_elapsed,lines:_lines,wc:wc(_lines),date:new Date().toLocaleDateString('en-IN')});
   if(aud)aud.onclick=dlAudio;
@@ -407,7 +455,8 @@ async function doStart(){
   /* Step 1: Microphone */
   setStep('mic','active','Requesting microphone...');
   try{
-    _mic=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false},video:false});
+    const micConstraint=_micDeviceId?{deviceId:{exact:_micDeviceId},echoCancellation:false,noiseSuppression:false,autoGainControl:false}:{echoCancellation:false,noiseSuppression:false,autoGainControl:false};
+    _mic=await navigator.mediaDevices.getUserMedia({audio:micConstraint,video:false});
     setStep('mic','done','Microphone granted ✓');
   }catch(e){
     try{_mic=await navigator.mediaDevices.getUserMedia({audio:true,video:false});}
@@ -733,7 +782,7 @@ function doStop(){
   if(_ctx){try{_ctx.close();}catch(e){}_ctx=null;}
   _analyser=null;_mixDest=null;_whisperBusy=false;
   if(_lines.length){
-    addSession({id:uid(),title:_title||'Session',date:new Date().toLocaleDateString('en-IN'),createdAt:Date.now(),elapsed:_elapsed,lines:[..._lines],wc:wc(_lines)});
+    addSession({id:uid(),title:_title||'Session',date:new Date().toLocaleDateString('en-IN'),createdAt:Date.now(),elapsed:_elapsed,lines:[..._lines],wc:wc(_lines),participants:_participants,organization:_organization});
     toast('Session saved');
   }
   render();
