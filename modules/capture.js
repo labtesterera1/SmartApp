@@ -706,20 +706,18 @@ async function whisperLoop(){
     var totalSamples=0;
     for(var i=0;i<_pcmChunks.length;i++)totalSamples+=_pcmChunks[i].length;
     
+    /* Wait for Whisper to load before processing */
+    if(!_whisper){await _sleep(500);continue;}
+    
     /* Minimum audio required before processing */
     var minSamples=_running?_captureSR*5:_captureSR*1; /* 5s while running, 1s at end */
     
     if(totalSamples<minSamples){
-      if(_running){
-        /* Waiting for more audio while session is active */
-        await _sleep(300);continue;
-      }else{
-        /* Session ended and buffer is nearly empty — flush done */
-        break;
-      }
+      if(_running){await _sleep(300);continue;}
+      else{break;} /* session ended, nothing left */
     }
     
-    /* Process immediately */
+    /* Process — max 15s per segment (prevents huge backlog chunks) */
     await processSegmentFromBuffer();
     await _sleep(50);
   }
@@ -742,9 +740,15 @@ async function processSegmentFromBuffer(){
     if(len<_captureSR*1){_segProcessing=false;return;}
     var pcm=new Float32Array(len);
     var off=0;for(var i=0;i<chunks.length;i++){pcm.set(chunks[i],off);off+=chunks[i].length;}
+    /* ── Cap to max 15s per segment, put overflow back into buffer ── */
+    var MAX_PCM=Math.floor(_captureSR*15);
+    if(pcm.length>MAX_PCM){
+      _pcmChunks.unshift(pcm.slice(MAX_PCM)); /* return overflow to front of queue */
+      pcm=pcm.slice(0,MAX_PCM);
+    }
     /* ── Keep last 1s overlap for boundary words ── */
     var tail=Math.floor(_captureSR*1.0);
-    if(pcm.length>tail)_pcmChunks.push(pcm.slice(pcm.length-tail));
+    if(pcm.length>tail&&!_pcmChunks.length)_pcmChunks.push(pcm.slice(pcm.length-tail));
     /* ── Resample to 16kHz mono ── */
     var ratio=_captureSR/16000;
     var outLen=Math.floor(pcm.length/ratio);
@@ -815,7 +819,7 @@ function sanitize(raw){
   /* Remove character stutters: "EPPPP" → "EP" */
   t=t.replace(/(.)\1{3,}/g,'$1$1');
   /* Remove substring loops: "testestestest" → "test" */
-  t=t.replace(/(\w{2,6})\1{3,}/gi,'$1');
+  t=t.replace(/(\w{2,6})\1{2,}/gi,'$1'); /* catch 3+ repetitions of any 2-6 char substring */
   /* Remove word-level repetition: "content content content" → "content" */
   t=t.replace(/\b(\w{3,})(?:\s+\1){2,}\b/gi,'$1');
   /* Remove any single "word" longer than 25 chars — always a hallucination */
