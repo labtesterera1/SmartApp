@@ -350,11 +350,21 @@ function renderRecord(){
   return h;
 }
 
+function wrapWords(text,n){
+  /* Wrap text at every n words with <br> for readability */
+  var words=text.split(' ');
+  var lines=[];
+  for(var i=0;i<words.length;i+=n){
+    lines.push(words.slice(i,i+n).join(' '));
+  }
+  return lines.join('<br>');
+}
+
 function speakerCard(l){
   const spk=l.spk||'Speaker 1';
   const cls=spk==='Speaker 2'?'cap-spk2-card':'cap-spk1-card';
   const nameCls=spk==='Speaker 2'?'cap-spk2-name':'cap-spk1-name';
-  return '<div class="cap-spk-card '+cls+'"><div class="cap-spk-hdr"><span class="'+nameCls+'">'+esc(spk)+'</span><span class="cap-spk-time">['+l.t+']</span></div><div class="cap-spk-text">'+esc(l.s)+'</div></div>';
+  return '<div class="cap-spk-card '+cls+'"><div class="cap-spk-hdr"><span class="'+nameCls+'">'+esc(spk)+'</span><span class="cap-spk-time">['+l.t+']</span></div><div class="cap-spk-text">'+wrapWords(esc(l.s),8)+'</div></div>';
 }
 
 function renderModeBar(){
@@ -652,8 +662,8 @@ async function loadWhisper(){
   try{
     const mod=await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/dist/transformers.min.js');
     const {pipeline,env}=mod;env.allowLocalModels=false;env.useBrowserCache=true;
-    setMsg('📥 Downloading offline engine (one-time ~75MB)...');
-    _whisper=await pipeline('automatic-speech-recognition','Xenova/whisper-tiny.en',{
+    setMsg('📥 Downloading offline engine (one-time ~150MB)...');
+    _whisper=await pipeline('automatic-speech-recognition','Xenova/whisper-base.en',{
       progress_callback:function(data){
         if(data.status==='progress'&&data.progress!=null){
           _wProgress=Math.round(data.progress);
@@ -774,10 +784,16 @@ function sanitize(raw){
     return '';
   }
   let t=raw.trim();
-  /* Remove character stutters: "EPPPP" → "EP", "AAAArrr" → "AArr" */
+  /* Remove character stutters: "EPPPP" → "EP" */
   t=t.replace(/(.)\1{3,}/g,'$1$1');
+  /* Remove substring loops: "testestestest" → "test" */
+  t=t.replace(/(\w{2,6})\1{3,}/gi,'$1');
   /* Remove word-level repetition: "content content content" → "content" */
   t=t.replace(/\b(\w{3,})(?:\s+\1){2,}\b/gi,'$1');
+  /* Remove any single "word" longer than 25 chars — always a hallucination */
+  t=t.split(' ').filter(function(w){return w.length<=25;}).join(' ');
+  /* Hard skip if result is now mostly garbage (< 3 real words left) */
+  if(t.split(' ').filter(function(w){return w.length>1;}).length<2)return '';
   /* 2. Remove music/sound markers */
   t=t.replace(/\(.*?music.*?\)/gi,'').replace(/\[.*?music.*?\]/gi,'')
      .replace(/\(.*?applause.*?\)/gi,'').replace(/\(.*?noise.*?\)/gi,'').trim();
