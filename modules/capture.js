@@ -746,7 +746,7 @@ async function processSegmentFromBuffer(){
     var rms=Math.sqrt(sum/rs.length);
     if(rms<0.002){_segProcessing=false;setMsg('○ Listening...');return;}
     /* ── Normalize audio for better recognition ── */
-    if(peak>0&&peak<0.5){var gain=0.5/peak;for(var j=0;j<rs.length;j++)rs[j]*=gain;}
+    if(rms>0&&rms<0.5){var gain=0.5/rms;for(var j=0;j<rs.length;j++)rs[j]*=gain;}
     /* ── Speaker detect ── */
     var spk=assignSpeaker(rs);
     /* ── Whisper ── */
