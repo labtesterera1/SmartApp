@@ -113,6 +113,9 @@ function injectCSS(){
     '.cap-empty{padding:30px 0;text-align:center;color:#444;font-size:12px}'+
     '.cap-merge-bar{position:sticky;bottom:0;background:#0d0d0d;border-top:1px solid #333;padding:10px;display:flex;gap:8px;align-items:center}'+
     '.cap-merge-count{font-size:11px;color:#d4ff3a;flex:1}'+
+    '.cap-xfer-bar{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:#0d0d0d;border:1px solid #1f1f1f;border-radius:4px;margin-bottom:10px}'+
+    '.cap-xfer-info{font-size:11px;color:#555}'+
+    '.cap-xfer-btns{display:flex;gap:6px}'+
     '.cap-steps{background:#0d0d0d;border:1px solid #1f3a1f;border-radius:6px;padding:12px 14px;margin-bottom:12px}'+
     '.cap-steps-title{font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#3a6a3a;margin-bottom:8px}'+
     '.cap-step{display:flex;align-items:flex-start;gap:10px;padding:4px 0;font-size:11px;color:#666;line-height:1.4}'+
@@ -368,9 +371,16 @@ function renderModeBar(){
 }
 
 function renderSessions(sessions){
-  if(!sessions.length)return '<div class="cap-empty">No sessions saved yet</div>';
+  /* ── Export / Import toolbar ── */
+  let toolbar='<div class="cap-xfer-bar">';
+  toolbar+='<span class="cap-xfer-info">'+sessions.length+' session'+(sessions.length!==1?'s':'')+' saved</span>';
+  toolbar+='<div class="cap-xfer-btns">';
+  toolbar+='<button class="cap-btn" id="cap-exp-all"'+(sessions.length?'':' disabled style="opacity:.4"')+'>⬇ Export All</button>';
+  toolbar+='<button class="cap-btn" id="cap-imp-file">⬆ Import</button>';
+  toolbar+='</div></div>';
+  if(!sessions.length)return toolbar+'<div class="cap-empty">No sessions saved yet</div>';
   const sel=_mergeSelected;
-  let h='<div class="cap-sec">'+sessions.length+' session'+(sessions.length>1?'s':'')+'</div>';
+  let h=toolbar+'<div class="cap-sec">'+sessions.length+' session'+(sessions.length>1?'s':'')+'</div>';
   sessions.forEach(function(s){
     const isSel=sel.has(s.id);
     h+='<div class="cap-scard"><div class="cap-scard-h">';
@@ -451,6 +461,10 @@ function bind(){
   const mergeBtn=g('cap-merge'),mergeClear=g('cap-merge-clear');
   if(mergeBtn)mergeBtn.onclick=doMerge;
   if(mergeClear)mergeClear.onclick=()=>{_mergeSelected.clear();render();};
+  /* Export / Import */
+  const expBtn=g('cap-exp-all'),impBtn=g('cap-imp-file');
+  if(expBtn)expBtn.onclick=doExportSessions;
+  if(impBtn)impBtn.onclick=doImportSessions;
 }
 
 /* ── Start ───────────────────────────────────────────────── */
@@ -805,6 +819,49 @@ function doStop(){
 }
 
 /* ── Session merge ───────────────────────────────────────── */
+/* ── Export all sessions ─────────────────────────────────── */
+function doExportSessions(){
+  const all=getSessions();
+  if(!all.length){toast('No sessions to export','warn');return;}
+  const data={
+    _meta:{app:'SmartApp ScreenAudioCapture',version:'1.0',exportedAt:new Date().toISOString(),count:all.length},
+    sessions:all
+  };
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');a.href=url;
+  a.download='screenaudio-sessions-'+new Date().toISOString().slice(0,10)+'.json';
+  a.click();setTimeout(()=>URL.revokeObjectURL(url),3000);
+  toast('Exported '+all.length+' sessions');
+}
+
+/* ── Import sessions from backup ─────────────────────────── */
+function doImportSessions(){
+  const input=document.createElement('input');
+  input.type='file';input.accept='.json,application/json';
+  input.onchange=async function(){
+    if(!input.files||!input.files[0])return;
+    try{
+      const text=await input.files[0].text();
+      const data=JSON.parse(text);
+      if(!data.sessions||!Array.isArray(data.sessions))
+        throw new Error('Not a valid ScreenAudioCapture backup');
+      const existing=getSessions();
+      const existingIds=new Set(existing.map(s=>s.id));
+      let added=0;
+      const merged=[...existing];
+      data.sessions.forEach(function(s){
+        if(s.id&&!existingIds.has(s.id)){merged.push(s);added++;}
+      });
+      merged.sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+      saveSessions(merged);
+      _mergeSelected.clear();
+      toast('Imported '+added+' new session'+(added!==1?'s':''));
+      render();
+    }catch(e){toast('Import failed: '+e.message,'err');}
+  };input.click();
+}
+
 function doMerge(){
   const sel=Array.from(_mergeSelected);
   if(sel.length<2){toast('Select at least 2 sessions','warn');return;}
