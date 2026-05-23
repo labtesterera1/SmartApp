@@ -543,6 +543,18 @@ async function doStart(){
     _chunks=[];
     _rec.ondataavailable=function(e){if(e.data&&e.data.size>0)_chunks.push(e.data);};
     _rec.start(500);
+    /* Start PCM buffer capture IMMEDIATELY — audio is captured from second 0.
+       Even while Cloud STT is being tried, the buffer fills. If Cloud STT fails
+       and Whisper loads later, ALL audio from the start is available. */
+    _captureSR=_ctx.sampleRate||48000;
+    _pcmChunks=[];
+    _scriptNode=_ctx.createScriptProcessor(4096,1,1);
+    _scriptNode.onaudioprocess=function(e){
+      if(!_running||_paused)return;
+      _pcmChunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+    };
+    _mixer.connect(_scriptNode);
+    _scriptNode.connect(_ctx.destination);
     setStep('pipe','done','Audio pipeline ready ✓');
   }catch(e){setStep('pipe','error','Pipeline error: '+e.message);doStop();return;}
 
@@ -665,24 +677,15 @@ function startWhisperLoop(){
 }
 
 function startContinuousCapture(){
-  if(!_ctx||!_mixer){setMsg('Audio pipeline not ready');return;}
-  if(_scriptNode)return; /* already running */
-  _captureSR=_ctx.sampleRate||48000;
-  _pcmChunks=[];_segProcessing=false;
-  /* ScriptProcessor captures raw PCM continuously */
-  _scriptNode=_ctx.createScriptProcessor(4096,1,1);
-  _scriptNode.onaudioprocess=function(e){
-    if(!_running||_paused)return;
-    const d=e.inputBuffer.getChannelData(0);
-    _pcmChunks.push(new Float32Array(d)); /* copy — buffer is reused */
-  };
-  _mixer.connect(_scriptNode);
-  _scriptNode.connect(_ctx.destination); /* required for processor to run; outputs silence */
-  /* Timer grabs + processes a segment — capture continues uninterrupted */
+  /* ScriptProcessor already running from doStart — just start the processing timer */
+  if(_segTimer)return;
+  _segProcessing=false;
   _segTimer=setInterval(function(){
     if(!_segProcessing&&_running&&!_paused)processSegmentFromBuffer();
   },SEG_SECONDS*1000);
-  setMsg('🎙 Capturing continuously — no words missed');
+  /* Process ALL buffered audio from session start immediately */
+  if(_pcmChunks.length>0)processSegmentFromBuffer();
+  setMsg('🎙 Capturing — processing backlog from start');
 }
 
 async function processSegmentFromBuffer(){
@@ -719,7 +722,7 @@ async function processSegmentFromBuffer(){
     const url=URL.createObjectURL(wav);
     let result;
     try{
-      result=await _whisper(url,{max_new_tokens:220,chunk_length_s:30,stride_length_s:5});
+      result=await _whisper(url,{max_new_tokens:128,chunk_length_s:30,stride_length_s:5});
     }finally{URL.revokeObjectURL(url);}
     const raw=(result&&result.text)||'';
     const text=sanitize(raw.replace(/\[BLANK_AUDIO\]/gi,'').replace(/Thanks for watching.*/gi,''));
@@ -745,6 +748,10 @@ function sanitize(raw){
     return '';
   }
   let t=raw.trim();
+  /* Remove character stutters: "EPPPP" → "EP", "AAAArrr" → "AArr" */
+  t=t.replace(/(.)\1{3,}/g,'$1$1');
+  /* Remove word-level repetition: "content content content" → "content" */
+  t=t.replace(/\b(\w{3,})(?:\s+\1){2,}\b/gi,'$1');
   /* 2. Remove music/sound markers */
   t=t.replace(/\(.*?music.*?\)/gi,'').replace(/\[.*?music.*?\]/gi,'')
      .replace(/\(.*?applause.*?\)/gi,'').replace(/\(.*?noise.*?\)/gi,'').trim();
