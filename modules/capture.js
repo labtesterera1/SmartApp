@@ -144,7 +144,6 @@ let _mic=null,_sys=null,_ctx=null,_rec=null,_sr=null;
 let _chunks=[],_hasSys=false,_analyser=null;
 let _mixDest=null,_whisperRec=null,_whisperBusy=false;
 let _mixer=null,_pcmChunks=[],_scriptNode=null,_segTimer=null,_segProcessing=false,_captureSR=48000;
-const SEG_SECONDS=15; /* process a segment every 15s — capture never stops */
 let _mode='cloud',_netErr=0,_srMsg='';
 let _whisper=null,_whisperLoading=false,_wProgress=0;
 let _connLost=false,_connReason='';
@@ -304,7 +303,7 @@ function renderRecord(){
       h+='<div class="cap-startup-step waiting" id="step-engine"><span class="cap-startup-icon">·</span>Transcript engine ready...</div>';
       h+='</div>';
     }else{
-      h+='<div class="cap-ready-banner">● CAPTURING — transcript appears every ~10 seconds &nbsp;<span style="font-size:10px;color:#555">'+esc(_srMsg)+'</span></div>';
+      h+='<div class="cap-ready-banner">● CAPTURING — continuous transcription active &nbsp;<span style="font-size:10px;color:#555">'+esc(_srMsg)+'</span></div>';
     }
     h+='<div class="cap-meter"><span class="cap-m-lbl">MIC</span><div class="cap-m-track"><div class="cap-m-bar" id="cap-bar"></div></div><span class="cap-m-val" id="cap-val">0%</span></div>';
     h+='<div class="cap-tx" id="cap-tx">';
@@ -669,7 +668,7 @@ async function loadWhisper(){
 }
 
 /* ── CONTINUOUS CAPTURE — no gaps, no missed words ───────────
-   Audio is buffered non-stop via a ScriptProcessor. Every SEG_SECONDS
+   Audio is buffered non-stop via a ScriptProcessor. Continuously —
    the buffer is grabbed (atomically) and processed on a COPY while
    fresh audio immediately keeps filling — the mic is NEVER stopped. */
 function startWhisperLoop(){
@@ -677,64 +676,91 @@ function startWhisperLoop(){
 }
 
 function startContinuousCapture(){
-  /* ScriptProcessor already running from doStart — just start the processing timer */
+  /* ScriptProcessor already runs from doStart — just start processing loop.
+     NO timer. Process as fast as Whisper can handle, back-to-back. */
   if(_segTimer)return;
+  _segTimer=1; /* flag: loop running */
   _segProcessing=false;
-  _segTimer=setInterval(function(){
-    if(!_segProcessing&&_running&&!_paused)processSegmentFromBuffer();
-  },SEG_SECONDS*1000);
-  /* Process ALL buffered audio from session start immediately */
-  if(_pcmChunks.length>0)processSegmentFromBuffer();
-  setMsg('🎙 Capturing — processing backlog from start');
+  whisperLoop();
 }
+
+async function whisperLoop(){
+  /* Tight loop: accumulate ≥5s audio → process → repeat. Zero idle time. */
+  const MIN_SEC=5;
+  while(_running||_pcmChunks.length>0){
+    /* Wait if paused */
+    if(_paused){await _sleep(500);continue;}
+    /* Count buffered audio */
+    let totalSamples=0;
+    for(let i=0;i<_pcmChunks.length;i++)totalSamples+=_pcmChunks[i].length;
+    const bufferedSec=totalSamples/_captureSR;
+    /* Wait until we have MIN_SEC seconds (or session ended with leftover) */
+    if(bufferedSec<MIN_SEC&&_running){await _sleep(300);continue;}
+    if(totalSamples<_captureSR*1){await _sleep(200);continue;} /* <1s skip */
+    /* Process immediately */
+    await processSegmentFromBuffer();
+    await _sleep(50); /* tiny yield for UI */
+  }
+  _segTimer=null;
+}
+
+function _sleep(ms){return new Promise(function(r){setTimeout(r,ms);});}
 
 async function processSegmentFromBuffer(){
   if(_segProcessing||!_whisper)return;
   if(!_pcmChunks.length)return;
   _segProcessing=true;
-  if(_root){const rb=_root.querySelector('.cap-ready-banner');if(rb)rb.classList.add('cap-writing');}
-  setMsg('✍ Writing transcript...');
+  setMsg('✍ Transcribing...');
+  if(_root){var rb=_root.querySelector('.cap-ready-banner');if(rb)rb.classList.add('cap-writing');}
   try{
-    /* ── Atomically grab the buffer — fresh audio fills new array, NO GAP ── */
-    const chunks=_pcmChunks;
+    /* ── Grab buffer atomically — NO GAP, new audio fills fresh array ── */
+    var chunks=_pcmChunks;
     _pcmChunks=[];
-    let len=0;for(let i=0;i<chunks.length;i++)len+=chunks[i].length;
-    if(len<_captureSR){_segProcessing=false;return;} /* < 1s — skip */
-    const pcm=new Float32Array(len);
-    let off=0;for(let i=0;i<chunks.length;i++){pcm.set(chunks[i],off);off+=chunks[i].length;}
-    /* ── Keep last 1.5s as overlap into next segment (boundary words) ── */
-    const tail=Math.floor(_captureSR*1.5);
+    var len=0;for(var i=0;i<chunks.length;i++)len+=chunks[i].length;
+    if(len<_captureSR*1){_segProcessing=false;return;}
+    var pcm=new Float32Array(len);
+    var off=0;for(var i=0;i<chunks.length;i++){pcm.set(chunks[i],off);off+=chunks[i].length;}
+    /* ── Keep last 1s overlap for boundary words ── */
+    var tail=Math.floor(_captureSR*1.0);
     if(pcm.length>tail)_pcmChunks.push(pcm.slice(pcm.length-tail));
-    /* ── Resample to 16kHz for Whisper ── */
-    const ratio=_captureSR/16000;
-    const outLen=Math.floor(pcm.length/ratio);
-    const rs=new Float32Array(outLen);
-    for(let i=0;i<outLen;i++){
-      const idx=i*ratio,i0=Math.floor(idx),i1=Math.min(i0+1,pcm.length-1);
-      const frac=idx-i0;rs[i]=pcm[i0]*(1-frac)+pcm[i1]*frac;
+    /* ── Resample to 16kHz mono ── */
+    var ratio=_captureSR/16000;
+    var outLen=Math.floor(pcm.length/ratio);
+    var rs=new Float32Array(outLen);
+    for(var j=0;j<outLen;j++){
+      var idx=j*ratio,i0=Math.floor(idx),i1=Math.min(i0+1,pcm.length-1);
+      rs[j]=pcm[i0]*(1-(idx-i0))+pcm[i1]*(idx-i0);
     }
-    /* ── Silence check ── */
-    let peak=0;for(let i=0;i<rs.length;i++){const v=Math.abs(rs[i]);if(v>peak)peak=v;}
-    if(peak<0.004){_segProcessing=false;setMsg('○ Listening...');return;}
-    /* ── Speaker + Whisper ── */
-    const spk=assignSpeaker(rs);
-    const wav=float32ToWav(rs,16000);
-    const url=URL.createObjectURL(wav);
-    let result;
+    /* ── Skip silence ── */
+    var peak=0;for(var j=0;j<rs.length;j++){var v=Math.abs(rs[j]);if(v>peak)peak=v;}
+    if(peak<0.003){_segProcessing=false;setMsg('○ Listening...');return;}
+    /* ── Normalize audio for better recognition ── */
+    if(peak>0&&peak<0.5){var gain=0.5/peak;for(var j=0;j<rs.length;j++)rs[j]*=gain;}
+    /* ── Speaker detect ── */
+    var spk=assignSpeaker(rs);
+    /* ── Whisper ── */
+    var wav=float32ToWav(rs,16000);
+    var url=URL.createObjectURL(wav);
+    var result;
     try{
-      result=await _whisper(url,{max_new_tokens:128,chunk_length_s:30,stride_length_s:5});
+      result=await _whisper(url,{max_new_tokens:128,chunk_length_s:30,stride_length_s:5,language:'en'});
     }finally{URL.revokeObjectURL(url);}
-    const raw=(result&&result.text)||'';
-    const text=sanitize(raw.replace(/\[BLANK_AUDIO\]/gi,'').replace(/Thanks for watching.*/gi,''));
-    if(text&&text!=='...'){addToTranscript(text,spk);setMsg('✓ '+text.slice(0,45));}
-    else setMsg('○ Listening...');
-  }catch(e){setMsg('⚠ '+(e.message||'error').slice(0,40));}
-  if(_root){const rb=_root.querySelector('.cap-ready-banner');if(rb)rb.classList.remove('cap-writing');}
+    var raw=(result&&result.text)||'';
+    var text=sanitize(raw.replace(/\[BLANK_AUDIO\]/gi,'').replace(/Thanks for watching.*/gi,''));
+    if(text&&text!=='...'){
+      /* Basic punctuation if missing */
+      text=text.charAt(0).toUpperCase()+text.slice(1);
+      if(!/[.!?;]$/.test(text))text+='.';
+      addToTranscript(text,spk);
+      setMsg('✓ '+text.slice(0,50));
+    }else{setMsg('○ Listening...');}
+  }catch(e){setMsg('⚠ '+(e.message||'').slice(0,40));}
+  if(_root){var rb2=_root.querySelector('.cap-ready-banner');if(rb2)rb2.classList.remove('cap-writing');}
   _segProcessing=false;
 }
 
 function stopContinuousCapture(){
-  if(_segTimer){clearInterval(_segTimer);_segTimer=null;}
+  _segTimer=null;
   if(_scriptNode){try{_scriptNode.disconnect();}catch(e){}_scriptNode.onaudioprocess=null;_scriptNode=null;}
   _pcmChunks=[];_segProcessing=false;
 }
@@ -839,7 +865,7 @@ function addToTranscript(text,spk){
   if(!text||text==='...')return;
   /* Dedup overlap against previous same-speaker segment */
   const last=_lines[_lines.length-1];
-  if(last&&last.spk===spk&&(_elapsed-(last.sec||0))<=SEG_SECONDS+10){
+  if(last&&last.spk===spk&&(_elapsed-(last.sec||0))<=30){
     text=dedupBoundary(last.s,text);
   }
   if(!text.trim())return;
