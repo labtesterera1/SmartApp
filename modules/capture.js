@@ -925,16 +925,21 @@ function addToTranscript(text,spk){
 }
 
 function groupLines(lines){
-  /* Group consecutive same-speaker segments within 2-minute gap */
+  /* Group consecutive same-speaker segments.
+     Rules: same speaker + gap ≤ 120s + under 40 words → merge into one card.
+     Over 40 words → start a NEW card (visible paragraph break = data flowing). */
   const groups=[];
+  const MAX_WORDS=40;
   lines.forEach(function(l){
     const last=groups[groups.length-1];
     const gap=last?(l.sec||0)-(last.sec||0):999;
-    if(last&&last.spk===l.spk&&gap<=120){
-      /* Same speaker, within 2 min — append sentence to existing card */
+    const wordCount=last?(last.s.split(' ').length):0;
+    if(last&&last.spk===l.spk&&gap<=120&&wordCount<MAX_WORDS){
+      /* Same speaker, short gap, paragraph not full → append */
       last.s=last.s.trimEnd()+' '+l.s;
-      last.sec=l.sec; /* keep updating so gap always measured from last chunk */
+      last.sec=l.sec;
     }else{
+      /* New card: speaker changed, long gap, or paragraph full */
       groups.push({t:l.t,s:l.s,spk:l.spk,sec:l.sec});
     }
   });
