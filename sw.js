@@ -7,7 +7,7 @@
 
    To force users to pick up new code: bump CACHE_NAME below.
    ============================================================ */
-const CACHE_NAME = 'smartapp-shell-v0.44';
+const CACHE_NAME = 'smartapp-shell-v0.46';
 const SHELL = [
   './',
   './index.html',
