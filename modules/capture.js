@@ -710,10 +710,13 @@ async function whisperLoop(){
     if(!_whisper){await _sleep(500);continue;}
     
     /* Minimum audio required before processing */
-    var minSamples=_running?_captureSR*5:_captureSR*1; /* 5s while running, 1s at end */
+    var minSamples=_running?_captureSR*3:_captureSR*1; /* 3s while running, 1s at end */
     
     if(totalSamples<minSamples){
-      if(_running){await _sleep(300);continue;}
+      if(_running){/* Show progress so user knows next segment is coming */
+      var needed=Math.ceil((minSamples-totalSamples)/_captureSR);
+      setMsg('○ Buffering — next segment in ~'+needed+'s');
+      await _sleep(300);continue;}
       else{break;} /* session ended, nothing left */
     }
     
@@ -730,7 +733,7 @@ async function processSegmentFromBuffer(){
   if(_segProcessing||!_whisper)return;
   if(!_pcmChunks.length)return;
   _segProcessing=true;
-  setMsg('✍ Transcribing...');
+  setMsg('✍ Transcribing segment '+(_lines.length+1)+'...');
   if(_root){var rb=_root.querySelector('.cap-ready-banner');if(rb)rb.classList.add('cap-writing');}
   try{
     /* ── Grab buffer atomically — NO GAP, new audio fills fresh array ── */
@@ -741,7 +744,7 @@ async function processSegmentFromBuffer(){
     var pcm=new Float32Array(len);
     var off=0;for(var i=0;i<chunks.length;i++){pcm.set(chunks[i],off);off+=chunks[i].length;}
     /* ── Cap to max 15s per segment, put overflow back into buffer ── */
-    var MAX_PCM=Math.floor(_captureSR*15);
+    var MAX_PCM=Math.floor(_captureSR*8); /* 8s max per segment for faster results */
     if(pcm.length>MAX_PCM){
       _pcmChunks.unshift(pcm.slice(MAX_PCM)); /* return overflow to front of queue */
       pcm=pcm.slice(0,MAX_PCM);
@@ -760,7 +763,7 @@ async function processSegmentFromBuffer(){
     /* ── Skip silence/noise: use RMS energy (more robust than peak) ── */
     var sum=0;for(var j=0;j<rs.length;j++){sum+=rs[j]*rs[j];}
     var rms=Math.sqrt(sum/rs.length);
-    if(rms<0.002){_segProcessing=false;setMsg('○ Listening...');return;}
+    if(rms<0.001){_segProcessing=false;setMsg('○ Listening...');return;}
     /* ── Normalize audio for better recognition ── */
     if(rms>0&&rms<0.5){var gain=0.5/rms;for(var j=0;j<rs.length;j++)rs[j]*=gain;}
     /* ── Speaker detect ── */
