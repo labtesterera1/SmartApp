@@ -611,7 +611,12 @@ async function doStart(){
   _timer=setInterval(function(){
     if(_running&&!_paused){
       _elapsed++;
+      /* Update clock */
       const t=_root&&_root.querySelector('#cap-timer');if(t)t.textContent=fmt(_elapsed);
+      /* Refresh both panels every second — keeps them in sync */
+      updateLivePanel();
+      updateFinalPanel();
+      /* Size warnings */
       if(_elapsed===3600&&_sizeLevel<1){_sizeLevel=1;render();}
       else if(_elapsed===5400&&_sizeLevel<2){_sizeLevel=2;render();}
       else if(_elapsed===7200&&_sizeLevel<3){
