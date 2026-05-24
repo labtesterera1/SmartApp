@@ -482,7 +482,6 @@ function bind(){
   if(audBtn)audBtn.onclick=dlAudio;
   if(vidBtn)vidBtn.onclick=dlVideo;
   if(txt)txt.onclick=()=>dlTxt({title:_title,elapsed:_elapsed,lines:_lines,wc:wc(_lines),date:new Date().toLocaleDateString('en-IN',{timeZone:'Asia/Kolkata'})});  if(ppt)ppt.onclick=()=>dlPpt({title:_title,elapsed:_elapsed,lines:_lines,wc:wc(_lines),date:new Date().toLocaleDateString('en-IN',{timeZone:'Asia/Kolkata'})});
-  if(fileBtn)fileBtn.onclick=doFileUpload;
   if(szDl)szDl.onclick=()=>dlTxt({title:_title,elapsed:_elapsed,lines:_lines,wc:wc(_lines),date:new Date().toLocaleDateString('en-IN',{timeZone:'Asia/Kolkata'})});
   if(resConn)resConn.onclick=doResumeConn;
   if(newConn)newConn.onclick=()=>{doStop();};
