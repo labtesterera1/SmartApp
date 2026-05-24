@@ -331,7 +331,7 @@ function renderRecord(){
     /* ── Dual-panel: LIVE (left) + FINAL TRANSCRIPT (right) ── */
     h+='<div class="cap-dual">';
     h+='<div class="cap-live-pane"><div class="cap-pane-hdr"><span>⚡ LIVE</span><span id="cap-live-src" style="font-weight:400;color:#555;font-size:9px">Waiting...</span></div><div class="cap-pane-body" id="cap-live-pane"><div class="cap-pane-empty">Listening...</div></div></div>';
-    h+='<div class="cap-final-pane"><div class="cap-pane-hdr"><span>📄 FINAL TRANSCRIPT</span><span id="cap-final-count" style="font-weight:400;color:#555;font-size:9px">0 segments</span></div><div class="cap-pane-body" id="cap-final-pane"><div class="cap-pane-empty">Confirmed segments appear here after 15s</div></div></div>';
+    h+='<div class="cap-final-pane"><div class="cap-pane-hdr"><span>📄 FINAL TRANSCRIPT</span><span id="cap-final-count" style="font-weight:400;color:#555;font-size:9px">0 segments</span></div><div class="cap-pane-body" id="cap-final-pane"><div class="cap-pane-empty">Transcript appears here within 5s</div></div></div>';
     h+='</div>';
     h+='<div id="cap-tx" style="display:none"></div>';
     h+='<div class="cap-row"><button class="cap-btn" id="cap-brk" style="flex:1">⏸ Take a Break</button><button class="cap-btn red" id="cap-stp" style="flex:1">■ Stop Session</button></div>';
@@ -821,8 +821,10 @@ async function processSegmentFromBuffer(){
         _segProcessing=false;return;
       }
       /* Basic punctuation if missing */
+      text=text.replace(/^\.+\s*/,'').replace(/\s*\.+$/,'.');  /* strip bad leading/trailing dots */
+      if(!text)return;
       text=text.charAt(0).toUpperCase()+text.slice(1);
-      if(!/[.!?;]$/.test(text))text+='.';
+      if(!/[.!?;,]$/.test(text))text+='.';
       addToTranscript(text,spk);
       setMsg('✓ '+text.slice(0,50));
     }else{setMsg('○ Listening...');}
@@ -922,7 +924,7 @@ function float32ToWav(samples,sr){
    vice versa. Result moves to the final transcript panel. */
 function transferToFinal(){
   if(!_draft.length)return;
-  const cutoff=_elapsed-15;
+  const cutoff=_elapsed-5;
   const ready=_draft.filter(function(l){return(l.sec||0)<=cutoff;});
   if(!ready.length)return;
   _draft=_draft.filter(function(l){return(l.sec||0)>cutoff;});
@@ -969,8 +971,11 @@ function updateFinalPanel(){
   var pane=_root&&_root.querySelector('#cap-final-pane');
   if(!pane)return;
   var h='';
-  groupLines(_confirmed).forEach(function(g){h+=speakerCard(g);});
-  if(!h)h='<div class="cap-pane-empty">Confirmed segments will appear here</div>';
+  /* Include draft items older than 5s so final panel fills quickly */
+  var older=_draft.filter(function(l){return(_elapsed-(l.sec||0))>=5;});
+  var allFinal=_confirmed.concat(older).sort(function(a,b){return(a.sec||0)-(b.sec||0);});
+  groupLines(allFinal).forEach(function(g){h+=speakerCard(g);});
+  if(!h)h='<div class="cap-pane-empty">Transcript appears in ~5s</div>';
   pane.innerHTML=h;
   pane.scrollTop=pane.scrollHeight;
 }
@@ -1014,6 +1019,7 @@ function addToTranscript(text,spk,source){
   source=source||'whisper';
   _draft.push({t:fmt(_elapsed),s:text,spk:spk,sec:_elapsed,src:source});
   liveUpdate();
+  updateFinalPanel();
 }
 
 function groupLines(lines){
