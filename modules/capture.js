@@ -158,9 +158,10 @@ let _running=false,_paused=false,_elapsed=0;
 let _lines=[],_title='',_startupSteps=[];
 let _timer=null,_lvlTimer=null,_offlineTimer=null;
 let _mic=null,_sys=null,_ctx=null,_rec=null,_sr=null;
-let _chunks=[],_hasSys=false,_analyser=null;
+let _chunks=[],_vidChunks=[],_vidRec=null,_hasSys=false,_analyser=null;
 let _mixDest=null,_whisperRec=null,_whisperBusy=false;
 let _mixer=null,_pcmChunks=[],_scriptNode=null,_segTimer=null,_segProcessing=false,_captureSR=48000;
+let _groqKey=localStorage.getItem('sac_groq_key')||'';
 /* Dual-track state */
 let _draft=[];         /* both cloud+whisper results, last 15s — shown in LIVE panel */
 let _confirmed=[];     /* merged final lines — shown in FINAL panel */
@@ -292,6 +293,14 @@ function renderRecord(){
     h+='<input class="cap-inp" id="cap-pax" type="text" placeholder="e.g. Ishank Tyagi, John Doe" value="'+esc(_participants)+'">';
     h+='<div class="cap-lbl">Organization <span style="color:#333;font-size:9px;letter-spacing:0;text-transform:none">(optional)</span></div>';
     h+='<input class="cap-inp" id="cap-org" type="text" placeholder="e.g. CyberArk" value="'+esc(_organization)+'">';
+    /* Groq API key */
+    h+='<div style="background:#070710;border:1px solid #1a1a3a;border-radius:6px;padding:10px;margin-bottom:6px">';
+    h+='<div class="cap-lbl" style="color:#6a9fff">⚡ GROQ KEY <span style="font-size:9px;font-weight:400;color:#444">— Instant cloud transcription (free)</span></div>';
+    h+='<div style="display:flex;gap:6px;margin-top:5px"><input class="cap-inp" id="cap-groq-key" type="password" placeholder="gsk_... — free key at console.groq.com" value="'+esc(_groqKey)+'" style="flex:1;font-size:12px"><button class="cap-btn" id="cap-groq-save" style="font-size:11px">Save</button></div>';
+    h+=(_groqKey
+      ?'<div style="font-size:10px;color:#4caf50;margin-top:3px">✓ Cloud mode active — Whisper-large-v3 (instant)</div>'
+      :'<div style="font-size:10px;color:#444;margin-top:3px">No key = local Whisper (slow on CPU). Free key → <b style="color:#6a9fff">console.groq.com</b></div>');
+    h+='</div>';
     h+='<div class="cap-lbl">Microphone</div>';
     h+='<select class="cap-inp" id="cap-mic-sel" style="cursor:pointer">';
     h+='<option value="">Default microphone</option>';
@@ -310,7 +319,6 @@ function renderRecord(){
     h+='<button class="cap-bigbtn cap-go" id="cap-start">● Start Capture</button>';
     h+='<div style="margin-top:10px;padding-top:10px;border-top:1px solid #1a1a1a">';
     h+='<div class="cap-lbl">Or transcribe a pre-recorded file</div>';
-    h+='<button class="cap-btn" id="cap-file" style="width:100%;padding:10px">📂 Upload Audio / Video File</button>';
     h+='<div style="font-size:10px;color:#2a2a2a;margin-top:3px;text-align:center">Processed locally — no upload to any server</div>';
     h+='</div>';
   }
@@ -329,11 +337,11 @@ function renderRecord(){
     }
     h+='<div class="cap-meter"><span class="cap-m-lbl">MIC</span><div class="cap-m-track"><div class="cap-m-bar" id="cap-bar"></div></div><span class="cap-m-val" id="cap-val">0%</span></div>';
     /* ── Dual-panel: LIVE (left) + FINAL TRANSCRIPT (right) ── */
-    h+='<div class="cap-dual">';
-    h+='<div class="cap-live-pane"><div class="cap-pane-hdr"><span>⚡ LIVE</span><span id="cap-live-src" style="font-weight:400;color:#555;font-size:9px">Waiting...</span></div><div class="cap-pane-body" id="cap-live-pane"><div class="cap-pane-empty">Listening...</div></div></div>';
-    h+='<div class="cap-final-pane"><div class="cap-pane-hdr"><span>📄 FINAL TRANSCRIPT</span><span id="cap-final-count" style="font-weight:400;color:#555;font-size:9px">0 segments</span></div><div class="cap-pane-body" id="cap-final-pane"><div class="cap-pane-empty">Transcript appears here within 5s</div></div></div>';
+    /* Single clean transcript view */
+    h+='<div class="cap-tx" id="cap-tx">';
+    groupLines(_lines).forEach(function(g){h+=speakerCard(g);});
+    if(_lines.length===0){h+='<div class="cap-pane-empty" style="padding:20px;text-align:center;color:#333">● Recording — transcript appears every few seconds</div>';}
     h+='</div>';
-    h+='<div id="cap-tx" style="display:none"></div>';
     h+='<div class="cap-row"><button class="cap-btn" id="cap-brk" style="flex:1">⏸ Take a Break</button><button class="cap-btn red" id="cap-stp" style="flex:1">■ Stop Session</button></div>';
   }
 
@@ -362,8 +370,10 @@ function renderRecord(){
     h+='</div>';
     h+='<div class="cap-row">';
     h+='<button class="cap-btn" id="cap-new">New Session</button>';
-    if(_lines.length){h+='<button class="cap-btn" id="cap-txt">Download TXT</button><button class="cap-btn" id="cap-pdf">Download PDF</button><button class="cap-btn" id="cap-ppt">Download PPT</button>';}
-    if(_chunks.length){h+='<button class="cap-btn" id="cap-audio">Download Audio</button>';}
+    if(_lines.length){h+='<button class="cap-btn" id="cap-txt">Download TXT</button><button class="cap-btn" id="cap-ppt">Download PPT</button>';}
+    if(_chunks.length){h+='<button class="cap-btn" id="cap-audio">⬇ Audio</button>';}
+    if(_vidChunks.length){h+='<button class="cap-btn" id="cap-video">⬇ Video</button>';}
+    
     h+='</div>';
     if(_lines.length){
       h+='<div class="cap-sec">Full Transcript</div>';
@@ -449,7 +459,7 @@ function bind(){
   if(tS)tS.onclick=()=>{_tab='sessions';render();};
   /* Record tab */
   const start=g('cap-start'),stp=g('cap-stp'),brk=g('cap-brk'),res=g('cap-res');
-  const nw=g('cap-new'),txt=g('cap-txt'),ppt=g('cap-ppt'),aud=g('cap-audio'),fileBtn=g('cap-file');
+  const nw=g('cap-new'),txt=g('cap-txt'),ppt=g('cap-ppt');
   const szDl=g('cap-sz-dl'),resConn=g('cap-resume-conn'),newConn=g('cap-new-conn');
   /* Load mic devices for dropdown */
   if(!_micDevices.length){getMicDevices().then(function(devs){if(devs.length){_micDevices=devs;
@@ -467,11 +477,11 @@ function bind(){
   if(stp)stp.onclick=doStop;
   if(brk)brk.onclick=doPause;
   if(res)res.onclick=doResume;
-  if(nw)nw.onclick=()=>{_lines=[];_elapsed=0;_title='';_chunks=[];_captureReady=false;_sizeLevel=0;_participants='';_organization='';_trainingName='';_micDevices=[];render();};
-  if(txt)txt.onclick=()=>dlTxt({title:_title,elapsed:_elapsed,lines:_lines,wc:wc(_lines),date:new Date().toLocaleDateString('en-IN',{timeZone:'Asia/Kolkata'})});
-  const pdfBtn=g('cap-pdf');if(pdfBtn)pdfBtn.onclick=()=>dlPdf({title:_title,trainingName:_trainingName,elapsed:_elapsed,lines:_lines,wc:wc(_lines),date:new Date().toLocaleDateString('en-IN',{timeZone:'Asia/Kolkata'}),participants:_participants,organization:_organization});
-  if(ppt)ppt.onclick=()=>dlPpt({title:_title,elapsed:_elapsed,lines:_lines,wc:wc(_lines),date:new Date().toLocaleDateString('en-IN',{timeZone:'Asia/Kolkata'})});
-  if(aud)aud.onclick=dlAudio;
+  if(nw)nw.onclick=()=>{_lines=[];_elapsed=0;_title='';_chunks=[];_vidChunks=[];_captureReady=false;_sizeLevel=0;_participants='';_organization='';_trainingName='';_micDevices=[];render();};
+  const audBtn=g('cap-audio'),vidBtn=g('cap-video');
+  if(audBtn)audBtn.onclick=dlAudio;
+  if(vidBtn)vidBtn.onclick=dlVideo;
+  if(txt)txt.onclick=()=>dlTxt({title:_title,elapsed:_elapsed,lines:_lines,wc:wc(_lines),date:new Date().toLocaleDateString('en-IN',{timeZone:'Asia/Kolkata'})});  if(ppt)ppt.onclick=()=>dlPpt({title:_title,elapsed:_elapsed,lines:_lines,wc:wc(_lines),date:new Date().toLocaleDateString('en-IN',{timeZone:'Asia/Kolkata'})});
   if(fileBtn)fileBtn.onclick=doFileUpload;
   if(szDl)szDl.onclick=()=>dlTxt({title:_title,elapsed:_elapsed,lines:_lines,wc:wc(_lines),date:new Date().toLocaleDateString('en-IN',{timeZone:'Asia/Kolkata'})});
   if(resConn)resConn.onclick=doResumeConn;
@@ -502,6 +512,14 @@ function bind(){
   const expBtn=g('cap-exp-all'),impBtn=g('cap-imp-file');
   if(expBtn)expBtn.onclick=doExportSessions;
   if(impBtn)impBtn.onclick=doImportSessions;
+  /* Groq key */
+  const gk=g('cap-groq-key'),gs=g('cap-groq-save');
+  if(gs&&gk)gs.onclick=function(){
+    _groqKey=(gk.value||'').trim();
+    if(_groqKey){localStorage.setItem('sac_groq_key',_groqKey);toast('⚡ Groq key saved — cloud mode ON');}
+    else{localStorage.removeItem('sac_groq_key');toast('Groq key cleared');}
+    render();
+  };
 }
 
 /* ── Start ───────────────────────────────────────────────── */
@@ -575,6 +593,19 @@ async function doStart(){
     const m=bestMime();
     _rec=new MediaRecorder(dest.stream,m?{mimeType:m}:{});
     _chunks=[];
+    /* Start video recording if system stream has video */
+    _vidChunks=[];_vidRec=null;
+    if(_hasSys&&_sys&&_sys.getVideoTracks().length>0){
+      try{
+        _vidRec=new MediaRecorder(_sys,{mimeType:'video/webm;codecs=vp8'});
+        _vidRec.ondataavailable=function(e){if(e.data&&e.data.size>0)_vidChunks.push(e.data);};
+        _vidRec.start(500);
+      }catch(e){
+        /* Try without codec constraint */
+        try{_vidRec=new MediaRecorder(_sys);_vidRec.ondataavailable=function(e){if(e.data&&e.data.size>0)_vidChunks.push(e.data);};_vidRec.start(500);}
+        catch(e2){_vidRec=null;}
+      }
+    }
     _rec.ondataavailable=function(e){if(e.data&&e.data.size>0)_chunks.push(e.data);};
     _rec.start(500);
     /* Start PCM buffer capture IMMEDIATELY — audio is captured from second 0.
@@ -800,14 +831,25 @@ async function processSegmentFromBuffer(){
     if(rms>0&&rms<0.5){var gain=0.5/rms;for(var j=0;j<rs.length;j++)rs[j]*=gain;}
     /* ── Speaker detect ── */
     var spk=assignSpeaker(rs);
-    /* ── Whisper ── */
-    var wav=float32ToWav(rs,16000);
-    var url=URL.createObjectURL(wav);
-    var result;
-    try{
-      result=await _whisper(url,{max_new_tokens:128,chunk_length_s:30,stride_length_s:5,language:'en'});
-    }finally{URL.revokeObjectURL(url);}
-    var raw=(result&&result.text)||'';
+    var wav=float32ToWav(rs,16000),raw='';
+    if(_groqKey){
+      try{
+        var fd=new FormData();
+        fd.append('file',new Blob([wav],{type:'audio/wav'}),'a.wav');
+        fd.append('model','whisper-large-v3-turbo');
+        fd.append('language','en');
+        fd.append('response_format','text');
+        var gr=await fetch('https://api.groq.com/openai/v1/audio/transcriptions',
+          {method:'POST',headers:{Authorization:'Bearer '+_groqKey},body:fd});
+        if(gr.ok){raw=(await gr.text()).trim();}
+        else if(gr.status===401){_groqKey='';localStorage.removeItem('sac_groq_key');}
+      }catch(e){/* network error — fall to local */}
+    }
+    if(!raw&&_whisper){
+      var wu=URL.createObjectURL(new Blob([wav],{type:'audio/wav'}));
+      try{var wr=await _whisper(wu,{max_new_tokens:128,chunk_length_s:30,stride_length_s:5,language:'en'});raw=(wr&&wr.text)||'';}
+      finally{URL.revokeObjectURL(wu);}
+    }
     var text=sanitize(raw.replace(/\[BLANK_AUDIO\]/gi,'').replace(/Thanks for watching.*/gi,''));
     /* Skip if result is gibberish (all-caps or too many punctuation/symbols) */
     if(text&&text.length>10){
@@ -1108,6 +1150,7 @@ function doStop(){
   _timer=null;_lvlTimer=null;_offlineTimer=null;
   if(_sr){try{_sr.abort();}catch(e){}_sr=null;}
   if(_whisperRec&&_whisperRec.state==='recording'){try{_whisperRec.stop();}catch(e){}}_whisperRec=null;
+  if(_vidRec&&_vidRec.state==='recording'){try{_vidRec.stop();}catch(e){}}_vidRec=null;
   stopContinuousCapture();_mixer=null;
   if(_transferTimer){clearInterval(_transferTimer);_transferTimer=null;}
   /* Flush remaining draft to final */
@@ -1314,6 +1357,14 @@ function dlPdf(s){
     doc.save((s.title||'session').replace(/[^a-z0-9]/gi,'-').toLowerCase()+'-transcript.pdf');
     toast('PDF downloaded');
   }catch(e){toast('PDF failed: '+e.message,'err');}
+}
+
+function dlVideo(){
+  if(!_vidChunks.length){toast('No video recorded — system audio screen share required','warn');return;}
+  const blob=new Blob(_vidChunks,{type:'video/webm'});const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');a.href=url;
+  a.download=(_title||'session').replace(/\s+/g,'-').toLowerCase()+'-video.webm';
+  a.click();setTimeout(()=>URL.revokeObjectURL(url),5000);toast('Video downloaded');
 }
 
 function dlAudio(){
