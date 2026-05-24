@@ -1,120 +1,93 @@
-/* ────────────────────────────────────────────────────────────────
-   GRAMMAR.AI · SERVICE WORKER
-   Cache strategy:
-   - Shell files (HTML/CSS/JS): stale-while-revalidate
-   - Config JSON: network-first (so module list updates appear)
-   - Icons: cache-first
-   - API calls: never cached (handled by browser, sent direct)
-   ──────────────────────────────────────────────────────────────── */
+/* ============================================================
+   sw.js — service worker
+   Bare-minimum app-shell caching so the PWA installs and works offline.
+   IMPORTANT: We DO NOT cache user data — that lives in IndexedDB /
+   localStorage, untouched by this worker. We only cache the static
+   shell so the app launches without a network connection.
 
-const VERSION = 'gai-v1.9.0'; // +MOD09 GUTS
-const SHELL_CACHE  = `${VERSION}-shell`;
-const CONFIG_CACHE = `${VERSION}-config`;
-
-const SHELL_URLS = [
+   To force users to pick up new code: bump CACHE_NAME below.
+   ============================================================ */
+const CACHE_NAME = 'smartapp-shell-v0.53';
+const SHELL = [
   './',
-  'index.html',
-  'manifest.json',
-  'assets/theme.css',
-  'assets/home.css',
-  'assets/settings.css',
-  'assets/modules.css',
-  'core/app.js',
-  'core/router.js',
-  'core/loader.js',
-  'core/home.js',
-  'core/settings.js',
-  'core/storage.js',
-  'core/ui.js',
-  'core/ai.js',
-  'core/toolbar.js',
-  'modules/chat/chat.css',
-  'modules/chat/view.html',
-  'modules/chat/controller.js',
-  'modules/chat/manifest.json',
-  'modules/paragraph/view.html',
-  'modules/paragraph/controller.js',
-  'modules/paragraph/manifest.json',
-  'modules/email/view.html',
-  'modules/email/controller.js',
-  'modules/email/manifest.json',
-  'modules/translator/view.html',
-  'modules/translator/controller.js',
-  'modules/translator/manifest.json',
-  'modules/exercise/view.html',
-  'modules/exercise/controller.js',
-  'modules/exercise/manifest.json',
-  'modules/notes/view.html',
-  'modules/notes/controller.js',
-  'modules/notes/manifest.json',
-  'modules/notes/notes.css',
-  'modules/rewrite/view.html',
-  'modules/rewrite/controller.js',
-  'modules/rewrite/manifest.json',
-  'modules/rewrite/rewrite.css',
-  'modules/guts/view.html',
-  'modules/guts/controller.js',
-  'modules/guts/manifest.json',
-  'modules/guts/guts.css',
-  'modules/timezone/view.html',
-  'modules/timezone/controller.js',
-  'modules/timezone/manifest.json',
-  'modules/timezone/timezone.css',
-  'icons/icon-192.png',
-  'icons/icon-512.png'
+  './index.html',
+  './app.css',
+  './manifest.json',
+  './core/router.js',
+  './core/storage.js',
+  './core/ui.js',
+  './core/version.js',
+  './core/profile.js',
+  './core/persistence.js',
+  './core/messages.js',
+  './core/timeart.js',
+  './core/reader-overlay.js',
+  './core/backup.js',
+  './core/speech.js',
+  './vendor/jszip.min.js',
+  './vendor/jspdf.umd.min.js',
+  './modules/ledger.js',
+  './modules/documents.js',
+  './modules/sweep.js',
+  './modules/vault.js',
+  './modules/reader.js',
+  './modules/capture.js',
+  './icons/icon-192.png',
+  './icons/icon-512.png',
+  './icons/icon-192-maskable.png',
+  './icons/icon-512-maskable.png',
+  './icons/apple-touch-icon.png',
+  './icons/favicon-32.png',
 ];
 
-self.addEventListener('install', (e) => {
-  e.waitUntil(
-    caches.open(SHELL_CACHE).then(cache =>
-      cache.addAll(SHELL_URLS.map(u => new Request(u, { cache: 'reload' })))
+self.addEventListener('install', (event) => {
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) =>
+      // Cache what we can; tolerate individual failures.
+      Promise.all(SHELL.map((url) =>
+        cache.add(url).catch(() => null)
+      ))
     )
   );
-  /* Force immediate activation — new version served on next page load. */
   self.skipWaiting();
 });
 
-self.addEventListener('activate', (e) => {
-  e.waitUntil(
-    caches.keys().then(keys =>
-      Promise.all(keys.filter(k => !k.startsWith(VERSION)).map(k => caches.delete(k)))
-    ).then(() => self.clients.claim()) // take control of all open pages immediately
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys().then((keys) =>
+      Promise.all(
+        keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k))
+      )
+    ).then(() => self.clients.claim())
   );
 });
 
-self.addEventListener('fetch', (e) => {
-  const req = e.request;
+self.addEventListener('fetch', (event) => {
+  const req = event.request;
   if (req.method !== 'GET') return;
-
+  // Only handle same-origin shell — leave fonts, CDNs, etc. alone.
   const url = new URL(req.url);
+  if (url.origin !== self.location.origin) return;
 
-  // Never cache cross-origin (AI APIs, fonts, etc.)
-  if (url.origin !== location.origin) return;
-
-  // Config files: network-first
-  if (url.pathname.includes('/config/') && url.pathname.endsWith('.json')) {
-    e.respondWith(
-      fetch(req).then(resp => {
-        const copy = resp.clone();
-        caches.open(CONFIG_CACHE).then(c => c.put(req, copy));
-        return resp;
-      }).catch(() => caches.match(req))
+  // Network-first for navigation (so new index.html arrives), cache fallback offline.
+  if (req.mode === 'navigate') {
+    event.respondWith(
+      fetch(req).catch(() => caches.match('./index.html'))
     );
     return;
   }
 
-  // Shell: stale-while-revalidate
-  e.respondWith(
-    caches.match(req).then(cached => {
-      const networkPromise = fetch(req).then(resp => {
-        if (resp && resp.status === 200) {
-          const copy = resp.clone();
-          caches.open(SHELL_CACHE).then(c => c.put(req, copy));
+  // Stale-while-revalidate for shell assets.
+  event.respondWith(
+    caches.match(req).then((cached) => {
+      const fresh = fetch(req).then((res) => {
+        if (res && res.ok) {
+          const clone = res.clone();
+          caches.open(CACHE_NAME).then((c) => c.put(req, clone));
         }
-        return resp;
+        return res;
       }).catch(() => cached);
-      return cached || networkPromise;
+      return cached || fresh;
     })
   );
 });
-
