@@ -219,7 +219,8 @@ function renderGrid() {
     ${total > 0 ? `
       <div class="search-bar">
         <input type="search" id="dh-search" class="search-input"
-               placeholder="🔍 Search filenames…" value="${esc(_search)}">
+               placeholder="🔍 Search filenames…" value="${esc(_search)}"
+               autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
         ${_search ? '<button class="search-clear" id="dh-search-clear" type="button">×</button>' : ''}
       </div>
     ` : ''}
