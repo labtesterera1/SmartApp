@@ -15,6 +15,7 @@ import { recordActivity } from '../core/profile.js';
 import { markBackupNow } from '../core/backup.js';
 
 const STORE = 'documents';
+const FOLDER_STORE = 'document_folders';
 const VIEW_MODE_KEY = 'smartapp_dh_view_v1';   // 'grid' | 'list'
 
 let _root = null;
@@ -28,6 +29,9 @@ let _viewMode = (() => {
 let _selectMode = false;       // SELECT toggle state
 let _selectedIds = new Set();  // tickbox state when in select mode
 let _search = '';               // live filter string
+let _folders = [];             // all folders cached
+let _currentFolderId = null;   // null = root view
+let _folderPath = [];          // breadcrumb [{id,name}]
 
 // Daily IMG counter for Camera captures (resets each day, monotonic per day)
 const IMG_COUNTER_KEY = 'smartapp_img_counter_v1';
@@ -63,6 +67,7 @@ function routeView() {
 
 async function refreshCache() {
   _cache = await db.getAll(STORE);
+  _folders = await db.getAll(FOLDER_STORE);
   _cache.sort((a, b) => b.createdAt - a.createdAt);   // newest first
 }
 
@@ -72,16 +77,24 @@ async function refreshCache() {
 function renderGrid() {
   revokeAllUrls();
 
+  /* ── Folder filtering ── */
+  const filesInView = _currentFolderId === null
+    ? _cache.filter(f => !f.folderId)                          // root: unorganized
+    : _cache.filter(f => f.folderId === _currentFolderId);     // inside folder
+
+  const childFolders = _folders.filter(f => (f.parentId||null) === _currentFolderId);
+
   const total = _cache.length;
   const totalSize = _cache.reduce((sum, f) => sum + (f.size || 0), 0);
 
-  const filtered = applySearch(_cache, _search);
+  const filtered = applySearch(filesInView, _search);
   const visibleTotal = filtered.length;
   const allFilteredSelected = visibleTotal > 0 && filtered.every(f => _selectedIds.has(f.id));
 
   _root.innerHTML = `
     <div class="dh-bar">
       <span class="dh-bar__count">${total} FILE${total === 1 ? '' : 'S'}</span>
+      <span class="dh-bar__count" style="color:var(--lime)">${_folders.length} FOLDER${_folders.length===1?'':'S'}</span>
       <span class="dh-bar__size">${formatSize(totalSize)}</span>
       <span class="dh-viewtoggle">
         <button class="dh-vt ${_viewMode === 'grid' ? 'is-active' : ''}" data-mode="grid"  title="Grid view">▦</button>
@@ -110,6 +123,13 @@ function renderGrid() {
       <input type="file" id="dh-importfile" accept=".smartdocs,application/json" hidden>
     </div>
 
+    <!-- Folder navigation -->
+    <div class="dh-folder-nav">
+      <span class="dh-crumb" data-id="">📁 All Files</span>
+      ${_folderPath.map((f,i) => `<span class="dh-crumb-sep">›</span><span class="dh-crumb" data-id="${f.id}">${esc(f.name)}</span>`).join('')}
+      <button class="vault-tool-btn dh-newfolder-btn" id="dh-newfolder">📂 New Folder</button>
+    </div>
+
     ${total > 0 ? `
       <div class="search-bar">
         <input type="search" id="dh-search" class="search-input"
@@ -134,6 +154,8 @@ function renderGrid() {
                 ${_selectedIds.size === 0 ? 'disabled' : ''}>📄 MERGE TO PDF</button>
         <button class="dh-actionbar__btn dh-actionbar__btn--danger" id="dh-del"
                 ${_selectedIds.size === 0 ? 'disabled' : ''}>🗑 DELETE</button>
+        <button class="dh-actionbar__btn" id="dh-move"
+                ${_selectedIds.size === 0 ? 'disabled' : ''}>📁 MOVE</button>
         <button class="dh-actionbar__btn" id="dh-cancel">✕ CANCEL</button>
       </div>
     ` : ''}
@@ -152,7 +174,7 @@ function renderGrid() {
          </div>`
       : visibleTotal === 0
         ? `<div class="placeholder"><div class="placeholder__icon">·</div>No files match "${esc(_search)}".</div>`
-        : `<div class="${_viewMode === 'list' ? 'dh-list' : 'dh-grid'} ${_selectMode ? 'is-selecting' : ''}" id="grid"></div>`}
+        : `<div class="dh-folders-row" id="folders-row"></div><div class="${_viewMode === 'list' ? 'dh-list' : 'dh-grid'} ${_selectMode ? 'is-selecting' : ''}" id="grid"></div>`}
   `;
 
   _root.querySelector('#dh-camera').addEventListener('change', onFileChosen);
@@ -174,6 +196,41 @@ function renderGrid() {
     if (!_selectMode) _selectedIds.clear();
     renderGrid();
   };
+
+  // Folder navigation (breadcrumb)
+  _root.querySelectorAll('.dh-crumb').forEach(crumb => {
+    crumb.onclick = () => {
+      const fid = crumb.dataset.id || null;
+      if (fid === null || fid === '') {
+        _currentFolderId = null;
+        _folderPath = [];
+      } else {
+        const idx = _folderPath.findIndex(f => f.id === fid);
+        if (idx >= 0) {
+          _folderPath = _folderPath.slice(0, idx + 1);
+          _currentFolderId = fid;
+        }
+      }
+      _search = '';
+      renderGrid();
+    };
+  });
+
+  // New folder button
+  const nfBtn = _root.querySelector('#dh-newfolder');
+  if (nfBtn) nfBtn.onclick = () => promptNewFolder();
+
+  // Render folder cards
+  const foldersRow = _root.querySelector('#folders-row');
+  if (foldersRow) {
+    childFolders.forEach(folder => {
+      foldersRow.appendChild(buildFolderCard(folder));
+    });
+  }
+
+  // Move button
+  const moveBtn = _root.querySelector('#dh-move');
+  if (moveBtn) moveBtn.onclick = () => showMovePicker();
 
   // Search
   const searchEl = _root.querySelector('#dh-search');
@@ -365,6 +422,7 @@ async function onFileChosen(e) {
       originalSize: original.size,
       blob,
       source,                          // 'camera' | 'pick' — recorded for future use
+      folderId: _currentFolderId || null,  // folder assignment
       createdAt: baseTime + i,
       updatedAt: baseTime + i,
     };
@@ -795,6 +853,159 @@ async function base64ToBlob(b64, mime) {
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
   return new Blob([bytes], { type: mime || 'application/octet-stream' });
+}
+
+/* ============================================================
+   Folder system — CRUD + navigation + move
+   ============================================================ */
+function buildFolderCard(folder) {
+  const fileCount = _cache.filter(f => f.folderId === folder.id).length;
+  const subCount  = _folders.filter(f => (f.parentId||null) === folder.id).length;
+  const meta = [fileCount + ' file' + (fileCount!==1?'s':''), subCount ? subCount+' subfolder'+(subCount!==1?'s':'') : ''].filter(Boolean).join(' · ');
+
+  const card = document.createElement('div');
+  card.className = 'dh-folder-card';
+  card.innerHTML = `
+    <div class="dh-folder-card__icon">📁</div>
+    <div class="dh-folder-card__body">
+      <div class="dh-folder-card__name">${esc(folder.name)}</div>
+      <div class="dh-folder-card__meta">${meta}</div>
+    </div>
+    <div class="dh-folder-card__acts">
+      <button class="dh-folder-card__open" title="Open folder">→</button>
+      <button class="dh-folder-card__menu" title="Options">⋮</button>
+    </div>`;
+
+  card.querySelector('.dh-folder-card__open').onclick = (e) => {
+    e.stopPropagation();
+    _folderPath.push({ id: folder.id, name: folder.name });
+    _currentFolderId = folder.id;
+    _search = '';
+    renderGrid();
+  };
+  card.querySelector('.dh-folder-card__body').onclick = () => {
+    _folderPath.push({ id: folder.id, name: folder.name });
+    _currentFolderId = folder.id;
+    _search = '';
+    renderGrid();
+  };
+  card.querySelector('.dh-folder-card__menu').onclick = (e) => {
+    e.stopPropagation();
+    showFolderMenu(folder, card);
+  };
+  return card;
+}
+
+function showFolderMenu(folder, anchor) {
+  // Remove any existing menu
+  const existing = document.querySelector('.dh-folder-menu');
+  if (existing) { existing.remove(); return; }
+
+  const menu = document.createElement('div');
+  menu.className = 'dh-folder-menu';
+  menu.innerHTML = `
+    <button id="fm-sub">📂 Add Subfolder</button>
+    <button id="fm-rename">✏ Rename</button>
+    <button id="fm-delete">🗑 Delete</button>
+  `;
+  anchor.appendChild(menu);
+
+  menu.querySelector('#fm-sub').onclick = () => { menu.remove(); promptNewFolder(folder.id); };
+  menu.querySelector('#fm-rename').onclick = () => {
+    menu.remove();
+    const name = prompt('New folder name:', folder.name);
+    if (!name || !name.trim()) return;
+    db.put(FOLDER_STORE, { ...folder, name: name.trim(), updatedAt: Date.now() })
+      .then(() => refreshCache()).then(() => renderGrid());
+    toast('✓ Renamed');
+  };
+  menu.querySelector('#fm-delete').onclick = async () => {
+    menu.remove();
+    const fileCount = _cache.filter(f => f.folderId === folder.id).length;
+    const subCount  = _folders.filter(f => (f.parentId||null) === folder.id).length;
+    if (fileCount > 0 || subCount > 0) {
+      if (!confirm(`"${folder.name}" has ${fileCount} file(s) and ${subCount} subfolder(s).
+Files will be moved to parent. Continue?`)) return;
+      // Move files to parent
+      for (const f of _cache.filter(f => f.folderId === folder.id)) {
+        await db.put(STORE, { ...f, folderId: folder.parentId || null, updatedAt: Date.now() });
+      }
+    }
+    await db.delete(FOLDER_STORE, folder.id);
+    if (_currentFolderId === folder.id) {
+      _currentFolderId = folder.parentId || null;
+      _folderPath.pop();
+    }
+    await refreshCache();
+    renderGrid();
+    toast('✓ Folder deleted');
+  };
+  // Close on outside click
+  setTimeout(() => document.addEventListener('click', () => menu.remove(), { once: true }), 100);
+}
+
+async function promptNewFolder(parentId) {
+  const name = prompt('Folder name:');
+  if (!name || !name.trim()) return;
+  await db.put(FOLDER_STORE, {
+    id: uuid(),
+    name: name.trim(),
+    parentId: parentId !== undefined ? parentId : (_currentFolderId || null),
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  });
+  await refreshCache();
+  renderGrid();
+  toast('✓ Folder created');
+}
+
+/* ── Move selected files to a folder ── */
+function showMovePicker() {
+  const ids = Array.from(_selectedIds);
+  if (!ids.length) return;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'dh-move-overlay';
+
+  function folderTree(parentId, depth) {
+    const children = _folders.filter(f => (f.parentId||null) === parentId);
+    if (!children.length) return '';
+    return children.map(f => `
+      <button class="dh-move-item" data-id="${f.id}" style="padding-left:${12+depth*16}px">
+        📁 ${esc(f.name)}
+      </button>
+      ${folderTree(f.id, depth+1)}
+    `).join('');
+  }
+
+  overlay.innerHTML = `
+    <div class="dh-move-modal">
+      <div class="dh-move-modal__head">Move ${ids.length} file${ids.length!==1?'s':''} to…</div>
+      <div class="dh-move-modal__list">
+        <button class="dh-move-item dh-move-item--root" data-id="">📁 All Files (root)</button>
+        ${folderTree(null, 0)}
+      </div>
+      <button class="dh-move-modal__cancel" id="dh-move-cancel">Cancel</button>
+    </div>`;
+
+  document.body.appendChild(overlay);
+
+  overlay.querySelectorAll('.dh-move-item').forEach(btn => {
+    btn.onclick = async () => {
+      const destId = btn.dataset.id || null;
+      for (const id of ids) {
+        const f = _cache.find(f => f.id === id);
+        if (f) await db.put(STORE, { ...f, folderId: destId, updatedAt: Date.now() });
+      }
+      overlay.remove();
+      _selectedIds.clear();
+      _selectMode = false;
+      await refreshCache();
+      renderGrid();
+      toast(`✓ Moved ${ids.length} file${ids.length!==1?'s':''}`);
+    };
+  });
+  overlay.querySelector('#dh-move-cancel').onclick = () => overlay.remove();
 }
 
 /* ============================================================
