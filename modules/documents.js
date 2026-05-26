@@ -76,15 +76,99 @@ async function refreshCache() {
 /* ============================================================
    Grid view
    ============================================================ */
+function injectFolderCSS() {
+  if (document.getElementById('dh-folder-css')) return;
+  const s = document.createElement('style');
+  s.id = 'dh-folder-css';
+  s.textContent = `
+    .dh-folder-nav {
+      display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+      padding: 8px 0 10px; margin-bottom: 4px;
+      border-bottom: 1px solid #1a1a1a;
+    }
+    .dh-crumb {
+      font-size: 11px; font-weight: 700; letter-spacing: .1em;
+      text-transform: uppercase; color: #555; cursor: pointer;
+      padding: 3px 8px; border-radius: 3px; transition: color .15s;
+    }
+    .dh-crumb:hover { color: #d4ff3a; }
+    .dh-crumb:last-of-type { color: #d4ff3a; }
+    .dh-crumb-sep { color: #333; font-size: 12px; }
+    .dh-newfolder-btn { margin-left: auto; }
+    .dh-folders-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .dh-folder-card {
+      position: relative;
+      background: linear-gradient(135deg, #1a1a0d 0%, #141410 100%);
+      border: 1px solid #2a2a1a;
+      border-radius: 8px;
+      padding: 14px 12px 10px;
+      cursor: pointer;
+      transition: border-color .15s, transform .1s;
+      display: flex; flex-direction: column; gap: 6px;
+      min-height: 90px;
+    }
+    .dh-folder-card:hover {
+      border-color: #d4ff3a;
+      transform: translateY(-1px);
+    }
+    .dh-folder-card__top {
+      display: flex; align-items: flex-start; justify-content: space-between;
+    }
+    .dh-folder-card__icon {
+      font-size: 28px; line-height: 1; filter: drop-shadow(0 0 6px rgba(212,255,58,.3));
+    }
+    .dh-folder-card__menu {
+      background: transparent; border: none; color: #444; cursor: pointer;
+      font-size: 16px; padding: 0 2px; line-height: 1;
+      transition: color .15s;
+    }
+    .dh-folder-card__menu:hover { color: #d4ff3a; }
+    .dh-folder-card__name {
+      font-size: 12px; font-weight: 700; color: #d0d0d0;
+      letter-spacing: .04em;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .dh-folder-card__meta {
+      font-size: 10px; color: #555; letter-spacing: .04em;
+    }
+    .dh-folder-card__open {
+      display: none;
+    }
+    .dh-folder-menu {
+      position: absolute; top: 100%; right: 0; z-index: 100;
+      background: #1a1a1a; border: 1px solid #333; border-radius: 6px;
+      padding: 4px; min-width: 140px; box-shadow: 0 4px 16px rgba(0,0,0,.5);
+    }
+    .dh-folder-menu button {
+      display: block; width: 100%; text-align: left;
+      background: none; border: none; color: #bbb; cursor: pointer;
+      padding: 7px 12px; font-size: 12px; border-radius: 4px;
+      transition: background .1s, color .1s;
+    }
+    .dh-folder-menu button:hover { background: #2a2a2a; color: #d4ff3a; }
+  `;
+  document.head.appendChild(s);
+}
+
 function renderGrid() {
   revokeAllUrls();
+  injectFolderCSS();
 
   /* ── Folder filtering ── */
   const filesInView = _currentFolderId === null
     ? _cache.filter(f => !f.folderId)                          // root: unorganized
     : _cache.filter(f => f.folderId === _currentFolderId);     // inside folder
 
-  const childFolders = _folders.filter(f => (f.parentId||null) === _currentFolderId);
+  const childFolders = _folders.filter(f => {
+    if ((f.parentId||null) !== _currentFolderId) return false;
+    if (!_search) return true;
+    return (f.name || '').toLowerCase().includes(_search.toLowerCase());
+  });
 
   const total = _cache.length;
   const totalSize = _cache.reduce((sum, f) => sum + (f.size || 0), 0);
@@ -162,6 +246,9 @@ function renderGrid() {
       </div>
     ` : ''}
 
+    <!-- Folders always visible regardless of search -->
+    <div class="dh-folders-row" id="folders-row"></div>
+
     ${total === 0
       ? `<div class="empty-card">
            <div class="empty-card__icon">⊕</div>
@@ -176,7 +263,7 @@ function renderGrid() {
          </div>`
       : visibleTotal === 0
         ? `<div class="placeholder"><div class="placeholder__icon">·</div>No files match "${esc(_search)}".</div>`
-        : `<div class="dh-folders-row" id="folders-row"></div><div class="${_viewMode === 'list' ? 'dh-list' : 'dh-grid'} ${_selectMode ? 'is-selecting' : ''}" id="grid"></div>`}
+        : `<div class="${_viewMode === 'list' ? 'dh-list' : 'dh-grid'} ${_selectMode ? 'is-selecting' : ''}" id="grid"></div>`}
   `;
 
   _root.querySelector('#dh-camera').addEventListener('change', onFileChosen);
@@ -868,29 +955,21 @@ function buildFolderCard(folder) {
   const card = document.createElement('div');
   card.className = 'dh-folder-card';
   card.innerHTML = `
-    <div class="dh-folder-card__icon">📁</div>
-    <div class="dh-folder-card__body">
-      <div class="dh-folder-card__name">${esc(folder.name)}</div>
-      <div class="dh-folder-card__meta">${meta}</div>
+    <div class="dh-folder-card__top">
+      <div class="dh-folder-card__icon">📁</div>
+      <button class="dh-folder-card__menu" title="Options" type="button">⋮</button>
     </div>
-    <div class="dh-folder-card__acts">
-      <button class="dh-folder-card__open" title="Open folder">→</button>
-      <button class="dh-folder-card__menu" title="Options">⋮</button>
-    </div>`;
+    <div class="dh-folder-card__name" title="${esc(folder.name)}">${esc(folder.name)}</div>
+    <div class="dh-folder-card__meta">${meta}</div>`;
 
-  card.querySelector('.dh-folder-card__open').onclick = (e) => {
-    e.stopPropagation();
+  // Click anywhere on card (except menu) to open folder
+  card.addEventListener('click', (e) => {
+    if (e.target.closest('.dh-folder-card__menu') || e.target.closest('.dh-folder-menu')) return;
     _folderPath.push({ id: folder.id, name: folder.name });
     _currentFolderId = folder.id;
     _search = '';
     renderGrid();
-  };
-  card.querySelector('.dh-folder-card__body').onclick = () => {
-    _folderPath.push({ id: folder.id, name: folder.name });
-    _currentFolderId = folder.id;
-    _search = '';
-    renderGrid();
-  };
+  });
   card.querySelector('.dh-folder-card__menu').onclick = (e) => {
     e.stopPropagation();
     showFolderMenu(folder, card);
