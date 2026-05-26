@@ -94,7 +94,8 @@ function renderList() {
       <button class="vault-tool-btn" id="importBtn">⬆ IMPORT BACKUP</button>
       <input type="file" id="importFile" accept=".json,application/json" hidden>
       ${_tab === 'urls' ? `
-      <button class="vault-tool-btn" id="importUrlsBtn" title="Import URLs from .txt, .html (Edge Collections) or .json">⬆ IMPORT URLS</button>
+      <button class="vault-tool-btn" id="exportUrlsBtn">⬇ EXPORT URLS</button>
+      <button class="vault-tool-btn" id="importUrlsBtn">⬆ IMPORT URLS</button>
       <input type="file" id="importUrlsFile" accept=".txt,.html,.json,text/plain,text/html,application/json" hidden>
       ` : ''}
     </div>
@@ -136,6 +137,8 @@ function renderList() {
   // URL-specific import (txt / html / json)
   const iuBtn = _root.querySelector('#importUrlsBtn');
   const iuFile = _root.querySelector('#importUrlsFile');
+  const euBtn = _root.querySelector('#exportUrlsBtn');
+  if (euBtn) euBtn.onclick = exportUrls;
   if (iuBtn) iuBtn.onclick = () => iuFile.click();
   if (iuFile) iuFile.onchange = handleImportUrls;
 
@@ -610,6 +613,19 @@ async function handleImport(e) {
 /* ============================================================
    Import URLs — accepts .txt / .html (Edge Collections) / .json
    ============================================================ */
+async function exportUrls() {
+  try {
+    if (!_urls.length) { toast('No URLs to export', 'warn'); return; }
+    const payload = { urls: _urls };
+    const filename = `signupkit-urls-${timestampStr()}-${_urls.length}urls.json`;
+    downloadJson(filename, wrap('signupkit', payload));
+    markBackupNow();
+    toast(`✓ Exported ${_urls.length} URLs`);
+  } catch (err) {
+    toast('Export failed: ' + err.message, 'err');
+  }
+}
+
 async function handleImportUrls(e) {
   const file = e.target.files && e.target.files[0];
   e.target.value = '';
