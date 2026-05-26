@@ -313,7 +313,8 @@ function renderList() {
     ${showSearch ? `
       <div class="search-bar">
         <input type="search" id="search" class="search-input"
-               placeholder="🔍 Search…" value="${esc(_search)}">
+               placeholder="🔍 Search…" value="${esc(_search)}"
+               autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
         ${_search ? '<button class="search-clear" id="searchClear" type="button">×</button>' : ''}
       </div>
     ` : ''}
@@ -345,7 +346,15 @@ function renderList() {
   });
   if (showSearch) {
     const si = _root.querySelector('#search');
-    si.addEventListener('input', () => { _search = si.value; renderList(); setTimeout(() => si.focus(), 0); });
+    si.addEventListener('input', () => {
+      _search = si.value;
+      const pos = si.selectionStart;
+      renderList();
+      setTimeout(() => {
+        const el = _root.querySelector('#search');
+        if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch(e){} }
+      }, 0);
+    });
     const sc = _root.querySelector('#searchClear');
     if (sc) sc.onclick = () => { _search = ''; renderList(); };
   }

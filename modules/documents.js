@@ -327,8 +327,12 @@ function renderGrid() {
   if (searchEl) {
     searchEl.addEventListener('input', () => {
       _search = searchEl.value;
+      const pos = searchEl.selectionStart;
       renderGrid();
-      setTimeout(() => _root.querySelector('#dh-search')?.focus(), 0);
+      setTimeout(() => {
+        const el = _root.querySelector('#dh-search');
+        if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch(e){} }
+      }, 0);
     });
     const sc = _root.querySelector('#dh-search-clear');
     if (sc) sc.onclick = () => { _search = ''; renderGrid(); };
