@@ -8,9 +8,14 @@
    ============================================================ */
 
 const DB_NAME = 'smartapp';
-const DB_VERSION = 3;
+// IMPORTANT: bump this number whenever STORES changes, otherwise the new
+// store is never physically created and transactions throw
+// "object store was not found". v4 = ensure all four stores exist on
+// installs whose database predates one of them.
+const DB_VERSION = 4;
 
 // Register stores up-front so future modules can declare them here.
+// Adding a name here ALSO requires bumping DB_VERSION above.
 const STORES = [
   'documents',     // Document Hub
   'signupkit',     // Sign-Up Kit accounts
@@ -26,13 +31,40 @@ function openDB() {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
+      // Create every registered store that doesn't already exist.
+      // Safe to run repeatedly — existing stores are skipped, so no
+      // data is lost when this fires on an upgrade.
       for (const name of STORES) {
         if (!db.objectStoreNames.contains(name)) {
           db.createObjectStore(name, { keyPath: 'id' });
         }
       }
     };
-    req.onsuccess = () => resolve(req.result);
+    req.onsuccess = () => {
+      const db = req.result;
+      // Self-heal: if the DB somehow opened without every store (e.g. a
+      // half-finished upgrade on an older build), close and reopen at a
+      // higher version to force onupgradeneeded to create the rest.
+      const missing = STORES.filter(s => !db.objectStoreNames.contains(s));
+      if (missing.length > 0) {
+        const bumpedVersion = db.version + 1;
+        db.close();
+        _dbPromise = null;
+        const retry = indexedDB.open(DB_NAME, bumpedVersion);
+        retry.onupgradeneeded = () => {
+          const rdb = retry.result;
+          for (const name of STORES) {
+            if (!rdb.objectStoreNames.contains(name)) {
+              rdb.createObjectStore(name, { keyPath: 'id' });
+            }
+          }
+        };
+        retry.onsuccess = () => resolve(retry.result);
+        retry.onerror   = () => reject(retry.error);
+        return;
+      }
+      resolve(db);
+    };
     req.onerror   = () => reject(req.error);
   });
   return _dbPromise;
@@ -40,6 +72,13 @@ function openDB() {
 
 async function tx(storeName, mode = 'readonly') {
   const db = await openDB();
+  // Clear, actionable error instead of the cryptic native one.
+  if (!db.objectStoreNames.contains(storeName)) {
+    throw new Error(
+      `Storage error: object store "${storeName}" is missing. ` +
+      `Reload the app — if this persists, the database needs a version bump.`
+    );
+  }
   return db.transaction(storeName, mode).objectStore(storeName);
 }
 
