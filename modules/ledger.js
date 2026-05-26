@@ -93,12 +93,10 @@ function renderList() {
       <button class="vault-tool-btn" id="exportBtn">⬇ EXPORT BACKUP</button>
       <button class="vault-tool-btn" id="importBtn">⬆ IMPORT BACKUP</button>
       <input type="file" id="importFile" accept=".json,application/json" hidden>
-      ${_tab === 'urls' ? `
       <button class="vault-tool-btn" id="exportUrlsBtn">⬇ EXPORT JSON</button>
       <button class="vault-tool-btn" id="exportUrlsTxtBtn">⬇ EXPORT TXT</button>
       <button class="vault-tool-btn" id="importUrlsBtn">⬆ IMPORT URLS</button>
       <input type="file" id="importUrlsFile" accept=".txt,.html,.json,text/plain,text/html,application/json" hidden>
-      ` : ''}
     </div>
 
     <button class="btn btn--primary su-add" id="add">
