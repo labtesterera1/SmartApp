@@ -1329,7 +1329,7 @@ function dlPdf(s){
       const spk=line.spk||'Speaker 1';
       const paxArr=(s.participants||'').split(',').map(function(p){return p.trim();}).filter(Boolean);
       const isSpk2=spk===paxArr[1]||spk==='Speaker 2';
-      const circ=isSpk2?C.green:C.blue;
+      const circ=isSpk2?Cgreen:Cblue;
       const init=spk.split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2)||'SP';
       const tLines=doc.splitTextToSize(line.s||'',cW-20);
       chk(16+tLines.length*5+6);

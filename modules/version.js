@@ -1,9 +1,9 @@
 /* ============================================================
-   core/version.js
+   modules/version.js
    Single source of truth for the app version.
    Shown in topbar and bottom ruler.
    Bump this on each meaningful release.
    ============================================================ */
 
-export const VERSION = '0.5';
-export const BUILD   = 'vault-expand';
+export const VERSION = '0.15';
+export const BUILD   = 'multiselect-readaloud';
