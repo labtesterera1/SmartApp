@@ -29,7 +29,7 @@ const DOMAINS = [
 const COLOR_CYCLE = ['', 'lime', 'orange', 'red'];
 
 let _root = null;
-let _tab = 'accounts';     // 'accounts' | 'urls'
+let _tab = 'urls';         // 'urls' | 'accounts'  — URLS shown first
 let _accounts = [];
 let _urls = [];
 let _editing = null;       // null | { kind: 'account'|'url', id: id|null }
@@ -81,11 +81,11 @@ function renderList() {
 
   _root.innerHTML = `
     <div class="filter-bar filter-bar--tabs">
-      <button class="filter-pill ${_tab === 'accounts' ? 'is-active' : ''}" data-tab="accounts">
-        ACCOUNTS (${accCount})
-      </button>
       <button class="filter-pill ${_tab === 'urls' ? 'is-active' : ''}" data-tab="urls">
         URLS (${urlCount})
+      </button>
+      <button class="filter-pill ${_tab === 'accounts' ? 'is-active' : ''}" data-tab="accounts">
+        ACCOUNTS (${accCount})
       </button>
     </div>
 
@@ -93,6 +93,10 @@ function renderList() {
       <button class="vault-tool-btn" id="exportBtn">⬇ EXPORT BACKUP</button>
       <button class="vault-tool-btn" id="importBtn">⬆ IMPORT BACKUP</button>
       <input type="file" id="importFile" accept=".json,application/json" hidden>
+      ${_tab === 'urls' ? `
+      <button class="vault-tool-btn" id="importUrlsBtn" title="Import URLs from .txt, .html (Edge Collections) or .json">⬆ IMPORT URLS</button>
+      <input type="file" id="importUrlsFile" accept=".txt,.html,.json,text/plain,text/html,application/json" hidden>
+      ` : ''}
     </div>
 
     <button class="btn btn--primary su-add" id="add">
@@ -129,6 +133,11 @@ function renderList() {
   _root.querySelector('#exportBtn').onclick = exportSignupKit;
   _root.querySelector('#importBtn').onclick = () => _root.querySelector('#importFile').click();
   _root.querySelector('#importFile').onchange = handleImport;
+  // URL-specific import (txt / html / json)
+  const iuBtn = _root.querySelector('#importUrlsBtn');
+  const iuFile = _root.querySelector('#importUrlsFile');
+  if (iuBtn) iuBtn.onclick = () => iuFile.click();
+  if (iuFile) iuFile.onchange = handleImportUrls;
 
   // Add new
   _root.querySelector('#add').onclick = () => {
@@ -596,6 +605,95 @@ async function handleImport(e) {
   } catch (err) {
     toast('Import failed: ' + err.message, 'err');
   }
+}
+
+/* ============================================================
+   Import URLs — accepts .txt / .html (Edge Collections) / .json
+   ============================================================ */
+async function handleImportUrls(e) {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  const text = await file.text();
+  let imported = [];
+
+  if (file.name.endsWith('.html') || text.includes('NETSCAPE-Bookmark') || text.includes('<DL>')) {
+    imported = parseEdgeBookmarks(text);
+  } else if (file.name.endsWith('.json')) {
+    try {
+      const data = JSON.parse(text);
+      // Accept signupkit export, urls-only export, or plain array
+      const arr = data.urls || (data.payload && data.payload.urls) || (Array.isArray(data) ? data : []);
+      imported = arr.map(u => ({
+        name: u.name || u.title || getDomainFrom(u.url || u.href || ''),
+        url:  u.url  || u.href || '',
+        notes: u.notes || u.description || '',
+        category: u.category || u.folder || '',
+      })).filter(u => u.url);
+    } catch(err) { toast('Invalid JSON — ' + err.message, 'err'); return; }
+  } else {
+    // Plain text: one URL per line
+    imported = parsePlainText(text);
+  }
+
+  if (!imported.length) { toast('No URLs found in file', 'warn'); return; }
+
+  const existing = await db.getAll(STORE_URL);
+  const existingSet = new Set(existing.map(u => u.url));
+  let added = 0;
+  for (const item of imported) {
+    if (!item.url || existingSet.has(item.url)) continue;
+    await db.put(STORE_URL, {
+      id: uuid(), url: item.url,
+      name: item.name || getDomainFrom(item.url),
+      notes: item.notes || '',
+      category: item.category || '',
+      createdAt: Date.now(), updatedAt: Date.now(),
+    });
+    added++;
+  }
+  await refreshCache();
+  renderList();
+  toast('✓ Imported ' + added + ' new URL' + (added !== 1 ? 's' : ''));
+}
+
+function parseEdgeBookmarks(html) {
+  const div = document.createElement('div');
+  div.innerHTML = html;
+  const results = [];
+  div.querySelectorAll('a[href]').forEach(a => {
+    const url = a.getAttribute('href') || '';
+    if (!url || url.startsWith('javascript:') || url.startsWith('place:')) return;
+    // Try to find folder/category from parent H3
+    let category = '';
+    let el = a.parentElement;
+    for (let i = 0; i < 6; i++) {
+      if (!el) break;
+      const prev = el.previousElementSibling;
+      if (prev && (prev.tagName === 'H3' || prev.tagName === 'H2')) {
+        category = prev.textContent.trim();
+        break;
+      }
+      el = el.parentElement;
+    }
+    results.push({ url, name: a.textContent.trim() || getDomainFrom(url), category });
+  });
+  return results;
+}
+
+function parsePlainText(text) {
+  return text.split('\n')
+    .map(l => l.trim())
+    .filter(l => l && !l.startsWith('#'))
+    .filter(l => /^https?:\/\//i.test(l) || (l.includes('.') && !l.includes(' ')))
+    .map(l => {
+      const url = /^https?:\/\//i.test(l) ? l : 'https://' + l;
+      return { url, name: getDomainFrom(url) };
+    });
+}
+
+function getDomainFrom(url) {
+  try { return new URL(url).hostname.replace(/^www\./, ''); } catch(e) { return url; }
 }
 
 /* ============================================================
