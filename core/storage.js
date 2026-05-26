@@ -10,9 +10,9 @@
 const DB_NAME = 'smartapp';
 // IMPORTANT: bump this number whenever STORES changes, otherwise the new
 // store is never physically created and transactions throw
-// "object store was not found". v4 = ensure all four stores exist on
-// installs whose database predates one of them.
-const DB_VERSION = 4;
+// "object store was not found". v7 = safe ceiling above any version the
+// self-heal auto-bump could have reached (v5) + prior deployments (v3).
+const DB_VERSION = 7;
 
 // Register stores up-front so future modules can declare them here.
 // Adding a name here ALSO requires bumping DB_VERSION above.
@@ -25,21 +25,31 @@ const STORES = [
 
 let _dbPromise = null;
 
+/* openDB — opens (or upgrades) the IndexedDB.
+   Recovery path: if the stored version is somehow HIGHER than DB_VERSION
+   (can happen when an older cached build is served by a stale service
+   worker), detect the VersionError, open without a version constraint to
+   read the real current version, then immediately reopen at DB_VERSION or
+   current+1 — whichever is higher — so all stores exist. */
+function _applyUpgrade(db) {
+  for (const name of STORES) {
+    if (!db.objectStoreNames.contains(name)) {
+      db.createObjectStore(name, { keyPath: 'id' });
+    }
+  }
+}
+
 function openDB() {
   if (_dbPromise) return _dbPromise;
   _dbPromise = new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      // Create every registered store that doesn't already exist.
-      // Safe to run repeatedly — existing stores are skipped, so no
-      // data is lost when this fires on an upgrade.
-      for (const name of STORES) {
-        if (!db.objectStoreNames.contains(name)) {
-          db.createObjectStore(name, { keyPath: 'id' });
-        }
-      }
+    req.onupgradeneeded = () => _applyUpgrade(req.result);
+
+    // onblocked fires when another tab holds a connection at an older version.
+    req.onblocked = () => {
+      console.warn('[storage] IDB upgrade blocked — close other SmartApp tabs and reload.');
     };
+
     req.onsuccess = () => {
       const db = req.result;
       // Self-heal: if the DB somehow opened without every store (e.g. a
@@ -51,21 +61,41 @@ function openDB() {
         db.close();
         _dbPromise = null;
         const retry = indexedDB.open(DB_NAME, bumpedVersion);
-        retry.onupgradeneeded = () => {
-          const rdb = retry.result;
-          for (const name of STORES) {
-            if (!rdb.objectStoreNames.contains(name)) {
-              rdb.createObjectStore(name, { keyPath: 'id' });
-            }
-          }
-        };
+        retry.onupgradeneeded = () => _applyUpgrade(retry.result);
         retry.onsuccess = () => resolve(retry.result);
         retry.onerror   = () => reject(retry.error);
         return;
       }
       resolve(db);
     };
-    req.onerror   = () => reject(req.error);
+    req.onerror = (ev) => {
+      const err = req.error;
+      // VersionError: the stored DB version is HIGHER than DB_VERSION.
+      // This means a stale cached script (served by the service worker)
+      // tried to open with a lower number. Open without a version to find
+      // the real current version, then reopen at max(DB_VERSION, current)
+      // so all our stores are created.
+      if (err && err.name === 'VersionError') {
+        console.warn('[storage] VersionError — probing real DB version for recovery…');
+        _dbPromise = null;
+        const probe = indexedDB.open(DB_NAME);
+        probe.onsuccess = () => {
+          const realVersion = probe.result.version;
+          probe.result.close();
+          const targetVersion = Math.max(DB_VERSION, realVersion + 1);
+          const fix = indexedDB.open(DB_NAME, targetVersion);
+          fix.onupgradeneeded = () => _applyUpgrade(fix.result);
+          fix.onsuccess = () => {
+            console.info('[storage] VersionError recovery succeeded at v' + targetVersion);
+            resolve(fix.result);
+          };
+          fix.onerror = () => reject(fix.error);
+        };
+        probe.onerror = () => reject(probe.error);
+        return;
+      }
+      reject(err);
+    };
   });
   return _dbPromise;
 }
