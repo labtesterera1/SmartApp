@@ -15,7 +15,9 @@ import { recordActivity } from '../core/profile.js';
 import { markBackupNow } from '../core/backup.js';
 
 const STORE = 'documents';
-const FOLDER_STORE = 'document_folders';
+const FOLDER_KEY = 'smartapp_doc_folders_v1';
+function getFoldersLS(){ try{return JSON.parse(localStorage.getItem(FOLDER_KEY))||[];}catch(e){return[];} }
+function saveFoldersLS(a){ try{localStorage.setItem(FOLDER_KEY,JSON.stringify(a));}catch(e){toast('Storage full','err');} }
 const VIEW_MODE_KEY = 'smartapp_dh_view_v1';   // 'grid' | 'list'
 
 let _root = null;
@@ -67,7 +69,7 @@ function routeView() {
 
 async function refreshCache() {
   _cache = await db.getAll(STORE);
-  _folders = await db.getAll(FOLDER_STORE);
+  _folders = getFoldersLS();
   _cache.sort((a, b) => b.createdAt - a.createdAt);   // newest first
 }
 
@@ -915,8 +917,8 @@ function showFolderMenu(folder, anchor) {
     menu.remove();
     const name = prompt('New folder name:', folder.name);
     if (!name || !name.trim()) return;
-    db.put(FOLDER_STORE, { ...folder, name: name.trim(), updatedAt: Date.now() })
-      .then(() => refreshCache()).then(() => renderGrid());
+    saveFoldersLS(getFoldersLS().map(f=>f.id===folder.id?{...f,name:name.trim(),updatedAt:Date.now()}:f));
+    refreshCache().then(()=>renderGrid());
     toast('✓ Renamed');
   };
   menu.querySelector('#fm-delete').onclick = async () => {
@@ -931,7 +933,7 @@ Files will be moved to parent. Continue?`)) return;
         await db.put(STORE, { ...f, folderId: folder.parentId || null, updatedAt: Date.now() });
       }
     }
-    await db.delete(FOLDER_STORE, folder.id);
+    saveFoldersLS(getFoldersLS().filter(f=>f.id!==folder.id));
     if (_currentFolderId === folder.id) {
       _currentFolderId = folder.parentId || null;
       _folderPath.pop();
@@ -947,13 +949,8 @@ Files will be moved to parent. Continue?`)) return;
 async function promptNewFolder(parentId) {
   const name = prompt('Folder name:');
   if (!name || !name.trim()) return;
-  await db.put(FOLDER_STORE, {
-    id: uuid(),
-    name: name.trim(),
-    parentId: parentId !== undefined ? parentId : (_currentFolderId || null),
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  });
+  const newF={id:uuid(),name:name.trim(),parentId:parentId!==undefined?parentId:(_currentFolderId||null),createdAt:Date.now(),updatedAt:Date.now()};
+  saveFoldersLS([...getFoldersLS(),newF]);
   await refreshCache();
   renderGrid();
   toast('✓ Folder created');
