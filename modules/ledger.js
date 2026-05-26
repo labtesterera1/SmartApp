@@ -93,10 +93,15 @@ function renderList() {
       <button class="vault-tool-btn" id="exportBtn">⬇ EXPORT BACKUP</button>
       <button class="vault-tool-btn" id="importBtn">⬆ IMPORT BACKUP</button>
       <input type="file" id="importFile" accept=".json,application/json" hidden>
-      <button class="vault-tool-btn" id="exportUrlsBtn">⬇ EXPORT JSON</button>
-      <button class="vault-tool-btn" id="exportUrlsTxtBtn">⬇ EXPORT TXT</button>
-      <button class="vault-tool-btn" id="importUrlsBtn">⬆ IMPORT URLS</button>
-      <input type="file" id="importUrlsFile" accept=".txt,.html,.json,text/plain,text/html,application/json" hidden>
+      ${_tab === 'urls' ? '<button class="vault-tool-btn" id="urlOptToggle" title="URL options">⚙ URLS</button>' : ''}
+    </div>
+    <div id="url-opts" style="display:none">
+      <div class="vault-tools" style="margin-top:4px">
+        <button class="vault-tool-btn" id="exportUrlsBtn">⬇ EXPORT JSON</button>
+        <button class="vault-tool-btn" id="exportUrlsTxtBtn">⬇ EXPORT TXT</button>
+        <button class="vault-tool-btn" id="importUrlsBtn">⬆ IMPORT URLS</button>
+        <input type="file" id="importUrlsFile" accept=".txt,.html,.json,text/plain,text/html,application/json" hidden>
+      </div>
     </div>
 
     <button class="btn btn--primary su-add" id="add">
@@ -136,6 +141,16 @@ function renderList() {
   // URL-specific import (txt / html / json)
   const iuBtn = _root.querySelector('#importUrlsBtn');
   const iuFile = _root.querySelector('#importUrlsFile');
+  // Toggle URL options panel
+  const toggleBtn = _root.querySelector('#urlOptToggle');
+  const urlOpts   = _root.querySelector('#url-opts');
+  if (toggleBtn && urlOpts) {
+    toggleBtn.onclick = () => {
+      const visible = urlOpts.style.display !== 'none';
+      urlOpts.style.display = visible ? 'none' : '';
+      toggleBtn.classList.toggle('is-active', !visible);
+    };
+  }
   const euBtn = _root.querySelector('#exportUrlsBtn');
   if (euBtn) euBtn.onclick = exportUrls;
   const euTxtBtn = _root.querySelector('#exportUrlsTxtBtn');
