@@ -158,7 +158,8 @@ function renderList() {
   const _impBtn = _root.querySelector('#importBtn');
   if (_expBtn) _expBtn.onclick = exportSignupKit;
   if (_impBtn) _impBtn.onclick = () => _root.querySelector('#importFile').click();
-  _root.querySelector('#importFile').onchange = handleImport;
+  const _impFile2 = _root.querySelector('#importFile');
+  if (_impFile2) _impFile2.onchange = handleImport;
   // URL-specific import (txt / html / json)
   const iuBtn = _root.querySelector('#importUrlsBtn');
   const iuFile = _root.querySelector('#importUrlsFile');
@@ -192,9 +193,10 @@ function renderList() {
   };
 
   // Search
-  if (showSearch) {
+  if (showSearch && _tab !== 'password') {
     const si = _root.querySelector('#search');
-    si.addEventListener('input', () => {
+    if (!si) { /* no search on this tab */ }
+    else si.addEventListener('input', () => {
       _search = si.value;
       const pos = si.selectionStart;
       renderList();
@@ -205,6 +207,7 @@ function renderList() {
     });
     const sc = _root.querySelector('#searchClear');
     if (sc) sc.onclick = () => { _search = ''; renderList(); };
+    } // end si check
   }
 
   // Account rows: tap to edit
@@ -621,7 +624,7 @@ function injectPwdCSS() {
     }
     .pwd-gen__row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
     .pwd-gen__slider {
-      flex:1; min-width:120px; height:6px;
+      flex:1; width:100%; min-width:0; height:6px;
       -webkit-appearance:none; appearance:none;
       background:#2a2a2a; border-radius:3px; outline:none; cursor:pointer;
       accent-color:#d4ff3a;
@@ -637,16 +640,17 @@ function injectPwdCSS() {
     }
     .pwd-gen__cat-head {
       display:flex; align-items:center; justify-content:space-between;
-      gap:8px; flex-wrap:wrap;
+      gap:8px; flex-wrap:wrap; margin-bottom:4px;
     }
-    .pwd-gen__cat-label { font-size:12px; font-weight:700; color:#ccc; }
+    .pwd-gen__cat-label { font-size:12px; font-weight:700; color:#ccc; flex:1; min-width:120px; }
     .pwd-gen__toggle {
       display:flex; border-radius:4px; overflow:hidden; border:1px solid #333;
+      flex-shrink:0;
     }
     .pwd-gen__tbtn {
-      padding:5px 12px; font-size:10px; font-weight:700; letter-spacing:.07em;
+      padding:6px 10px; font-size:10px; font-weight:700; letter-spacing:.04em;
       background:#1a1a1a; color:#555; border:none; cursor:pointer;
-      transition:all .15s; white-space:nowrap;
+      transition:all .15s; white-space:nowrap; min-width:70px; text-align:center;
     }
     .pwd-gen__tbtn.is-active { background:#d4ff3a; color:#0c0b09; }
     .pwd-gen__count-row {
