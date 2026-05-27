@@ -195,19 +195,19 @@ function renderList() {
   // Search
   if (showSearch && _tab !== 'password') {
     const si = _root.querySelector('#search');
-    if (!si) { /* no search on this tab */ }
-    else si.addEventListener('input', () => {
-      _search = si.value;
-      const pos = si.selectionStart;
-      renderList();
-      setTimeout(() => {
-        const el = _root.querySelector('#search');
-        if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch(e){} }
-      }, 0);
-    });
-    const sc = _root.querySelector('#searchClear');
-    if (sc) sc.onclick = () => { _search = ''; renderList(); };
-    } // end si check
+    if (si) {
+      si.addEventListener('input', () => {
+        _search = si.value;
+        const pos = si.selectionStart;
+        renderList();
+        setTimeout(() => {
+          const el = _root.querySelector('#search');
+          if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch(e){} }
+        }, 0);
+      });
+      const sc = _root.querySelector('#searchClear');
+      if (sc) sc.onclick = () => { _search = ''; renderList(); };
+    }
   }
 
   // Account rows: tap to edit
