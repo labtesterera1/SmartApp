@@ -235,6 +235,11 @@ function renderList() {
       copyValue(url);
     };
   });
+
+  // Password tab — bind all events after render
+  if (_tab === 'password') {
+    bindPasswordEvents();
+  }
 }
 
 function renderEmpty() {
