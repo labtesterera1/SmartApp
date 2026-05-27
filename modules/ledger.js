@@ -603,395 +603,372 @@ function backToList() { _editing = null; renderList(); }
    Password Generator
    ============================================================ */
 
+let _pwdVisible = false;   // show/hide password
+
 function injectPwdCSS() {
   if (document.getElementById('pwd-gen-css')) return;
   const s = document.createElement('style');
   s.id = 'pwd-gen-css';
   s.textContent = `
-    .pwd-gen { padding: 8px 0; }
+    .pwd-gen { padding:8px 0; }
     .pwd-gen__section {
-      background: #141410; border: 1px solid #1a1a1a; border-radius: 8px;
-      padding: 14px; margin-bottom: 10px;
+      background:#141410; border:1px solid #222; border-radius:8px;
+      padding:14px; margin-bottom:10px;
     }
     .pwd-gen__label {
-      font-size: 11px; font-weight: 700; letter-spacing: .1em;
-      text-transform: uppercase; color: #888; margin-bottom: 8px; display: block;
+      font-size:11px; font-weight:700; letter-spacing:.1em;
+      text-transform:uppercase; color:#777; margin-bottom:10px; display:block;
     }
-    .pwd-gen__row {
-      display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap;
-    }
+    .pwd-gen__row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
     .pwd-gen__slider {
-      flex: 1; min-width: 120px; accent-color: #d4ff3a;
-      height: 6px; -webkit-appearance: none; appearance: none;
-      background: #2a2a2a; border-radius: 3px; outline: none;
+      flex:1; min-width:120px; height:6px;
+      -webkit-appearance:none; appearance:none;
+      background:#2a2a2a; border-radius:3px; outline:none; cursor:pointer;
+      accent-color:#d4ff3a;
     }
     .pwd-gen__slider::-webkit-slider-thumb {
-      -webkit-appearance: none; width: 18px; height: 18px;
-      background: #d4ff3a; border-radius: 50%; cursor: pointer;
+      -webkit-appearance:none; width:20px; height:20px;
+      background:#d4ff3a; border-radius:50%; cursor:pointer;
     }
-    .pwd-gen__num {
-      width: 52px; text-align: center; background: #1a1a1a;
-      border: 1px solid #333; border-radius: 4px; color: #d4ff3a;
-      font-size: 16px; font-weight: 700; padding: 6px 4px;
-    }
-    .pwd-gen__toggle {
-      display: flex; gap: 0; border-radius: 4px; overflow: hidden;
-      border: 1px solid #333;
-    }
-    .pwd-gen__tbtn {
-      padding: 6px 12px; font-size: 11px; font-weight: 600;
-      background: #1a1a1a; color: #666; border: none; cursor: pointer;
-      letter-spacing: .05em; transition: all .15s;
-    }
-    .pwd-gen__tbtn.is-active {
-      background: #d4ff3a; color: #0c0b09;
-    }
-    .pwd-gen__chars {
-      width: 100%; background: #1a1a1a; border: 1px solid #333;
-      border-radius: 4px; color: #d4ff3a; font-size: 14px;
-      font-family: monospace; padding: 8px; margin-top: 6px;
-      letter-spacing: 2px;
-    }
-    .pwd-gen__result-box {
-      background: #0c0b09; border: 2px solid #d4ff3a; border-radius: 8px;
-      padding: 16px; text-align: center; margin-top: 6px;
-    }
-    .pwd-gen__result {
-      font-family: monospace; font-size: 18px; color: #d4ff3a;
-      word-break: break-all; letter-spacing: 1px; line-height: 1.5;
-      min-height: 28px;
-    }
-    .pwd-gen__actions {
-      display: flex; gap: 8px; margin-top: 12px; justify-content: center; flex-wrap: wrap;
-    }
-    .pwd-gen__btn {
-      padding: 10px 20px; border-radius: 6px; font-size: 12px;
-      font-weight: 700; letter-spacing: .08em; cursor: pointer;
-      border: 1px solid #333; transition: all .15s;
-    }
-    .pwd-gen__btn--gen {
-      background: #d4ff3a; color: #0c0b09; border-color: #d4ff3a;
-    }
-    .pwd-gen__btn--gen:hover { background: #e5ff6a; }
-    .pwd-gen__btn--copy {
-      background: transparent; color: #d4ff3a; border-color: #d4ff3a;
-    }
-    .pwd-gen__btn--copy:hover { background: #1a1a1a; }
-    .pwd-gen__error {
-      background: #2a1010; border: 1px solid #ff4444; border-radius: 6px;
-      padding: 10px 14px; color: #ff8888; font-size: 12px; margin-top: 8px;
-      text-align: center;
+    .pwd-gen__len-num {
+      width:54px; text-align:center; background:#1a1a1a;
+      border:1px solid #444; border-radius:6px; color:#d4ff3a;
+      font-size:18px; font-weight:700; padding:6px 4px; outline:none;
     }
     .pwd-gen__cat-head {
-      display: flex; align-items: center; justify-content: space-between;
-      margin-bottom: 6px;
+      display:flex; align-items:center; justify-content:space-between;
+      gap:8px; flex-wrap:wrap;
     }
+    .pwd-gen__cat-label { font-size:12px; font-weight:700; color:#ccc; }
+    .pwd-gen__toggle {
+      display:flex; border-radius:4px; overflow:hidden; border:1px solid #333;
+    }
+    .pwd-gen__tbtn {
+      padding:5px 12px; font-size:10px; font-weight:700; letter-spacing:.07em;
+      background:#1a1a1a; color:#555; border:none; cursor:pointer;
+      transition:all .15s; white-space:nowrap;
+    }
+    .pwd-gen__tbtn.is-active { background:#d4ff3a; color:#0c0b09; }
     .pwd-gen__count-row {
-      display: flex; align-items: center; gap: 8px; margin-top: 6px;
+      display:flex; align-items:center; gap:8px; margin-top:8px;
     }
-    .pwd-gen__count-input {
-      width: 44px; text-align: center; background: #1a1a1a;
-      border: 1px solid #333; border-radius: 4px; color: #fff;
-      font-size: 13px; padding: 5px 4px;
+    .pwd-gen__count-inp {
+      width:50px; text-align:center; background:#1a1a1a;
+      border:1px solid #333; border-radius:4px; color:#fff;
+      font-size:13px; padding:6px 4px; outline:none;
     }
-    .pwd-gen__count-label {
-      font-size: 11px; color: #666;
+    .pwd-gen__count-lbl { font-size:11px; color:#666; }
+    .pwd-gen__chars-inp {
+      width:100%; background:#1a1a1a; border:1px solid #333;
+      border-radius:4px; color:#d4ff3a; font-size:15px;
+      font-family:monospace; padding:8px 10px; margin-top:8px;
+      letter-spacing:3px; outline:none; box-sizing:border-box;
+    }
+    .pwd-gen__chars-inp::placeholder { color:#444; letter-spacing:1px; font-size:12px; }
+    .pwd-gen__result-section { margin-top:6px; }
+    .pwd-gen__result-box {
+      background:#0c0b09; border:2px solid #d4ff3a; border-radius:8px;
+      padding:16px 14px; position:relative;
+    }
+    .pwd-gen__result-row {
+      display:flex; align-items:center; gap:10px; justify-content:center;
+    }
+    .pwd-gen__result {
+      font-family:monospace; font-size:20px; color:#d4ff3a;
+      word-break:break-all; letter-spacing:2px; flex:1; text-align:center;
+    }
+    .pwd-gen__eye {
+      background:transparent; border:1px solid #333; border-radius:4px;
+      color:#888; cursor:pointer; font-size:16px; padding:4px 8px;
+      transition:color .15s; flex-shrink:0;
+    }
+    .pwd-gen__eye:hover { color:#d4ff3a; }
+    .pwd-gen__actions {
+      display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;
+    }
+    .pwd-gen__btn {
+      flex:1; min-width:120px; padding:12px 16px; border-radius:6px;
+      font-size:12px; font-weight:700; letter-spacing:.07em;
+      cursor:pointer; border:none; transition:all .15s;
+    }
+    .pwd-gen__btn--gen {
+      background:#d4ff3a; color:#0c0b09;
+    }
+    .pwd-gen__btn--gen:hover { background:#e5ff6a; }
+    .pwd-gen__btn--copy {
+      background:transparent; color:#d4ff3a; border:2px solid #d4ff3a !important;
+      border-radius:6px;
+    }
+    .pwd-gen__btn--copy:hover { background:#1a1a1a; }
+    .pwd-gen__error {
+      background:#2a1010; border:1px solid #ff4444; border-radius:6px;
+      padding:10px 14px; color:#ff8888; font-size:12px; margin-top:10px;
+      text-align:center; line-height:1.5;
     }
     .pwd-gen__history {
-      font-size: 10px; color: #555; text-align: center; margin-top: 8px;
-      letter-spacing: .05em;
+      font-size:10px; color:#444; text-align:center; margin-top:8px;
+      letter-spacing:.05em;
     }
   `;
   document.head.appendChild(s);
 }
 
+function renderCatSection(id, label, mode, count, extraHtml) {
+  return `
+    <div class="pwd-gen__section">
+      <div class="pwd-gen__cat-head">
+        <span class="pwd-gen__cat-label">${label}</span>
+        <div class="pwd-gen__toggle">
+          <button class="pwd-gen__tbtn ${mode === 'specific' ? 'is-active' : ''}"
+                  data-cat="${id}" data-mode="specific" type="button">SPECIFIC</button>
+          <button class="pwd-gen__tbtn ${mode === 'nospecific' ? 'is-active' : ''}"
+                  data-cat="${id}" data-mode="nospecific" type="button">NO SPECIFIC</button>
+        </div>
+      </div>
+      ${mode === 'specific' ? `
+        <div class="pwd-gen__count-row">
+          <span class="pwd-gen__count-lbl">Count:</span>
+          <input type="number" class="pwd-gen__count-inp" id="pwd-${id}-count"
+                 min="1" max="40" value="${count}"
+                 autocomplete="off" autocorrect="off" autocapitalize="off">
+        </div>
+        ${extraHtml || ''}
+      ` : ''}
+    </div>`;
+}
+
 function renderPasswordTab() {
   injectPwdCSS();
+  const maskedPwd = _pwdResult ? '*'.repeat(_pwdResult.length) : '';
+  const displayPwd = _pwdVisible ? _pwdResult : maskedPwd;
+
   return `
     <div class="pwd-gen">
-      <!-- Total Length -->
+      <!-- Length -->
       <div class="pwd-gen__section">
-        <span class="pwd-gen__label">Total Password Length</span>
+        <span class="pwd-gen__label">Total Password Length (5 – 40)</span>
         <div class="pwd-gen__row">
-          <input type="range" class="pwd-gen__slider" id="pwd-len-slider"
+          <input type="range" class="pwd-gen__slider" id="pwd-slider"
                  min="5" max="40" value="${_pwdLength}">
-          <input type="number" class="pwd-gen__num" id="pwd-len-num"
-                 min="5" max="40" value="${_pwdLength}">
+          <input type="number" class="pwd-gen__len-num" id="pwd-len"
+                 min="5" max="40" value="${_pwdLength}"
+                 autocomplete="off" autocorrect="off">
         </div>
       </div>
 
-      <!-- Special Characters -->
-      <div class="pwd-gen__section">
-        <div class="pwd-gen__cat-head">
-          <span class="pwd-gen__label" style="margin:0">Special Characters</span>
-          <div class="pwd-gen__toggle">
-            <button class="pwd-gen__tbtn ${_pwdSpecialMode === 'specific' ? 'is-active' : ''}"
-                    data-cat="special" data-mode="specific" type="button">SPECIFIC</button>
-            <button class="pwd-gen__tbtn ${_pwdSpecialMode === 'nospecific' ? 'is-active' : ''}"
-                    data-cat="special" data-mode="nospecific" type="button">NO SPECIFIC</button>
-          </div>
-        </div>
-        ${_pwdSpecialMode === 'specific' ? `
-          <div class="pwd-gen__count-row">
-            <span class="pwd-gen__count-label">Count:</span>
-            <input type="number" class="pwd-gen__count-input" id="pwd-special-count"
-                   min="1" max="40" value="${_pwdSpecialCount}">
-          </div>
-          <input type="text" class="pwd-gen__chars" id="pwd-special-chars"
-                 placeholder="Enter desired special characters e.g. !@#$%&*"
-                 value="${_pwdSpecialChars}"
-                 autocomplete="off" autocorrect="off" spellcheck="false">
-        ` : ''}
-      </div>
+      ${renderCatSection('special', '🔣 Special Characters', _pwdSpecialMode, _pwdSpecialCount,
+        `<input type="text" class="pwd-gen__chars-inp" id="pwd-special-chars"
+                placeholder="Type your special chars e.g.  &amp;  @  #  *  !"
+                value="${_pwdSpecialChars.replace(/"/g, '&quot;')}"
+                autocomplete="off" autocorrect="off" spellcheck="false">`
+      )}
 
-      <!-- Lowercase -->
-      <div class="pwd-gen__section">
-        <div class="pwd-gen__cat-head">
-          <span class="pwd-gen__label" style="margin:0">Small Characters (a-z)</span>
-          <div class="pwd-gen__toggle">
-            <button class="pwd-gen__tbtn ${_pwdSmallMode === 'specific' ? 'is-active' : ''}"
-                    data-cat="small" data-mode="specific" type="button">SPECIFIC</button>
-            <button class="pwd-gen__tbtn ${_pwdSmallMode === 'nospecific' ? 'is-active' : ''}"
-                    data-cat="small" data-mode="nospecific" type="button">NO SPECIFIC</button>
-          </div>
-        </div>
-        ${_pwdSmallMode === 'specific' ? `
-          <div class="pwd-gen__count-row">
-            <span class="pwd-gen__count-label">Count:</span>
-            <input type="number" class="pwd-gen__count-input" id="pwd-small-count"
-                   min="1" max="40" value="${_pwdSmallCount}">
-          </div>
-        ` : ''}
-      </div>
+      ${renderCatSection('small', '🔡 Small Characters (a – z)', _pwdSmallMode, _pwdSmallCount, '')}
+      ${renderCatSection('big',   '🔠 Big Characters (A – Z)',   _pwdBigMode,   _pwdBigCount,   '')}
+      ${renderCatSection('num',   '🔢 Numbers (0 – 9)',          _pwdNumMode,   _pwdNumCount,   '')}
 
-      <!-- Uppercase -->
-      <div class="pwd-gen__section">
-        <div class="pwd-gen__cat-head">
-          <span class="pwd-gen__label" style="margin:0">Big Characters (A-Z)</span>
-          <div class="pwd-gen__toggle">
-            <button class="pwd-gen__tbtn ${_pwdBigMode === 'specific' ? 'is-active' : ''}"
-                    data-cat="big" data-mode="specific" type="button">SPECIFIC</button>
-            <button class="pwd-gen__tbtn ${_pwdBigMode === 'nospecific' ? 'is-active' : ''}"
-                    data-cat="big" data-mode="nospecific" type="button">NO SPECIFIC</button>
-          </div>
-        </div>
-        ${_pwdBigMode === 'specific' ? `
-          <div class="pwd-gen__count-row">
-            <span class="pwd-gen__count-label">Count:</span>
-            <input type="number" class="pwd-gen__count-input" id="pwd-big-count"
-                   min="1" max="40" value="${_pwdBigCount}">
-          </div>
-        ` : ''}
-      </div>
-
-      <!-- Numbers -->
-      <div class="pwd-gen__section">
-        <div class="pwd-gen__cat-head">
-          <span class="pwd-gen__label" style="margin:0">Numbers (0-9)</span>
-          <div class="pwd-gen__toggle">
-            <button class="pwd-gen__tbtn ${_pwdNumMode === 'specific' ? 'is-active' : ''}"
-                    data-cat="num" data-mode="specific" type="button">SPECIFIC</button>
-            <button class="pwd-gen__tbtn ${_pwdNumMode === 'nospecific' ? 'is-active' : ''}"
-                    data-cat="num" data-mode="nospecific" type="button">NO SPECIFIC</button>
-          </div>
-        </div>
-        ${_pwdNumMode === 'specific' ? `
-          <div class="pwd-gen__count-row">
-            <span class="pwd-gen__count-label">Count:</span>
-            <input type="number" class="pwd-gen__count-input" id="pwd-num-count"
-                   min="1" max="40" value="${_pwdNumCount}">
-          </div>
-        ` : ''}
-      </div>
-
-      <!-- Generate Actions -->
+      <!-- Actions -->
       <div class="pwd-gen__actions">
         <button class="pwd-gen__btn pwd-gen__btn--gen" id="pwd-generate" type="button">
-          ⚡ GENERATE PASSWORD
+          ⚡ GENERATE
         </button>
-        ${_pwdResult ? `<button class="pwd-gen__btn pwd-gen__btn--copy" id="pwd-copy" type="button">
-          📋 COPY
-        </button>` : ''}
+        ${_pwdResult ? `
+          <button class="pwd-gen__btn pwd-gen__btn--copy" id="pwd-copy" type="button">
+            📋 COPY PASSWORD
+          </button>
+        ` : ''}
       </div>
 
-      ${_pwdError ? `<div class="pwd-gen__error">${_pwdError}</div>` : ''}
+      ${_pwdError ? `<div class="pwd-gen__error">⚠ ${_pwdError}</div>` : ''}
 
       ${_pwdResult ? `
-        <div class="pwd-gen__result-box">
-          <div class="pwd-gen__result">${_pwdResult}</div>
+        <div class="pwd-gen__result-section">
+          <div class="pwd-gen__result-box">
+            <div class="pwd-gen__result-row">
+              <div class="pwd-gen__result" id="pwd-display">${displayPwd}</div>
+              <button class="pwd-gen__eye" id="pwd-eye" type="button" title="Show/Hide">
+                ${_pwdVisible ? '🙈' : '👁'}
+              </button>
+            </div>
+          </div>
+          <div class="pwd-gen__history">
+            ${_pwdHistory.size} unique password${_pwdHistory.size === 1 ? '' : 's'} generated this session
+          </div>
         </div>
-        <div class="pwd-gen__history">${_pwdHistory.size} unique password(s) generated this session</div>
       ` : ''}
     </div>`;
 }
 
 function bindPasswordEvents() {
-  // Length slider + number sync
-  const slider = _root.querySelector('#pwd-len-slider');
-  const numInp = _root.querySelector('#pwd-len-num');
-  if (slider && numInp) {
-    slider.oninput = () => { _pwdLength = +slider.value; numInp.value = slider.value; };
-    numInp.onchange = () => {
-      let v = Math.max(5, Math.min(40, +numInp.value || 5));
-      _pwdLength = v; numInp.value = v; slider.value = v;
+  // Slider ↔ number input live sync (no full re-render — just update state + display)
+  const slider = _root.querySelector('#pwd-slider');
+  const lenInp = _root.querySelector('#pwd-len');
+
+  if (slider) {
+    slider.oninput = () => {
+      _pwdLength = Math.max(5, Math.min(40, +slider.value));
+      if (lenInp) lenInp.value = _pwdLength;
+    };
+  }
+  if (lenInp) {
+    lenInp.oninput = () => {
+      _pwdLength = Math.max(5, Math.min(40, +lenInp.value || 5));
+      if (slider) slider.value = _pwdLength;
+    };
+    lenInp.onblur = () => {
+      _pwdLength = Math.max(5, Math.min(40, +lenInp.value || 5));
+      lenInp.value = _pwdLength;
+      if (slider) slider.value = _pwdLength;
     };
   }
 
-  // Toggle buttons (specific / no specific)
+  // Category toggle buttons → update state + re-render
   _root.querySelectorAll('.pwd-gen__tbtn').forEach(btn => {
     btn.onclick = () => {
-      const cat = btn.dataset.cat;
-      const mode = btn.dataset.mode;
+      const cat = btn.dataset.cat, mode = btn.dataset.mode;
       if (cat === 'special') _pwdSpecialMode = mode;
       else if (cat === 'small') _pwdSmallMode = mode;
-      else if (cat === 'big') _pwdBigMode = mode;
-      else if (cat === 'num') _pwdNumMode = mode;
+      else if (cat === 'big')   _pwdBigMode   = mode;
+      else if (cat === 'num')   _pwdNumMode   = mode;
       renderList();
     };
   });
 
-  // Count inputs
-  const sc = _root.querySelector('#pwd-special-count');
-  if (sc) sc.onchange = () => { _pwdSpecialCount = Math.max(1, +sc.value || 1); };
-  const smc = _root.querySelector('#pwd-small-count');
-  if (smc) smc.onchange = () => { _pwdSmallCount = Math.max(1, +smc.value || 1); };
-  const bc = _root.querySelector('#pwd-big-count');
-  if (bc) bc.onchange = () => { _pwdBigCount = Math.max(1, +bc.value || 1); };
-  const nc = _root.querySelector('#pwd-num-count');
-  if (nc) nc.onchange = () => { _pwdNumCount = Math.max(1, +nc.value || 1); };
+  // Count inputs — update state on every change
+  const bind = (id, setter) => {
+    const el = _root.querySelector(id);
+    if (el) { el.oninput = el.onchange = () => setter(Math.max(1, +el.value || 1)); }
+  };
+  bind('#pwd-special-count', v => _pwdSpecialCount = v);
+  bind('#pwd-small-count',   v => _pwdSmallCount   = v);
+  bind('#pwd-big-count',     v => _pwdBigCount      = v);
+  bind('#pwd-num-count',     v => _pwdNumCount      = v);
 
-  // Special characters input
-  const chars = _root.querySelector('#pwd-special-chars');
-  if (chars) chars.oninput = () => { _pwdSpecialChars = chars.value; };
+  // Custom special chars
+  const charsEl = _root.querySelector('#pwd-special-chars');
+  if (charsEl) charsEl.oninput = () => { _pwdSpecialChars = charsEl.value; };
 
-  // Generate button
+  // Generate
   const genBtn = _root.querySelector('#pwd-generate');
   if (genBtn) genBtn.onclick = generatePassword;
 
-  // Copy button
+  // Copy
   const copyBtn = _root.querySelector('#pwd-copy');
   if (copyBtn) copyBtn.onclick = () => {
-    navigator.clipboard.writeText(_pwdResult).then(() => {
-      toast('\u2713 Password copied to clipboard');
-    }).catch(() => {
-      // Fallback
-      const ta = document.createElement('textarea');
-      ta.value = _pwdResult; document.body.appendChild(ta);
-      ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
-      toast('\u2713 Password copied');
-    });
+    if (!_pwdResult) return;
+    navigator.clipboard.writeText(_pwdResult)
+      .then(() => toast('✓ Password copied to clipboard'))
+      .catch(() => {
+        const ta = Object.assign(document.createElement('textarea'),
+          { value: _pwdResult, style: 'position:fixed;opacity:0' });
+        document.body.appendChild(ta); ta.select();
+        document.execCommand('copy'); document.body.removeChild(ta);
+        toast('✓ Password copied');
+      });
   };
+
+  // Show / Hide eye toggle
+  const eyeBtn = _root.querySelector('#pwd-eye');
+  const display = _root.querySelector('#pwd-display');
+  if (eyeBtn && display) {
+    eyeBtn.onclick = () => {
+      _pwdVisible = !_pwdVisible;
+      display.textContent = _pwdVisible ? _pwdResult : '*'.repeat(_pwdResult.length);
+      eyeBtn.textContent  = _pwdVisible ? '🙈' : '👁';
+    };
+  }
 }
 
 function generatePassword() {
   _pwdError = '';
+  _pwdVisible = false;
 
-  const LOWER = 'abcdefghijklmnopqrstuvwxyz';
-  const UPPER = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  const LOWER  = 'abcdefghijklmnopqrstuvwxyz';
+  const UPPER  = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
   const DIGITS = '0123456789';
+  const DEFAULT_SPECIAL = '!@#$%&*()-_=+[]{}|;:,.<>?';
 
-  // Read current values from DOM (in case user typed without blur)
-  const lenEl = _root.querySelector('#pwd-len-num');
-  if (lenEl) _pwdLength = Math.max(5, Math.min(40, +lenEl.value || 12));
-  const scEl = _root.querySelector('#pwd-special-count');
-  if (scEl) _pwdSpecialCount = Math.max(1, +scEl.value || 1);
-  const smcEl = _root.querySelector('#pwd-small-count');
-  if (smcEl) _pwdSmallCount = Math.max(1, +smcEl.value || 1);
-  const bcEl = _root.querySelector('#pwd-big-count');
-  if (bcEl) _pwdBigCount = Math.max(1, +bcEl.value || 1);
-  const ncEl = _root.querySelector('#pwd-num-count');
-  if (ncEl) _pwdNumCount = Math.max(1, +ncEl.value || 1);
+  // Read latest values from DOM inputs before generating
+  const syncNum = (id, min, max, fallback) => {
+    const el = _root.querySelector(id);
+    return el ? Math.max(min, Math.min(max, +el.value || fallback)) : fallback;
+  };
+  _pwdLength       = syncNum('#pwd-len', 5, 40, _pwdLength);
+  _pwdSpecialCount = syncNum('#pwd-special-count', 1, 40, _pwdSpecialCount);
+  _pwdSmallCount   = syncNum('#pwd-small-count', 1, 40, _pwdSmallCount);
+  _pwdBigCount     = syncNum('#pwd-big-count', 1, 40, _pwdBigCount);
+  _pwdNumCount     = syncNum('#pwd-num-count', 1, 40, _pwdNumCount);
   const chEl = _root.querySelector('#pwd-special-chars');
   if (chEl) _pwdSpecialChars = chEl.value;
 
-  // Validate special chars pool
-  if (_pwdSpecialMode === 'specific' && _pwdSpecialChars.trim().length === 0) {
-    _pwdError = 'Please enter at least one special character.';
+  const specialPool = (_pwdSpecialChars.trim() || DEFAULT_SPECIAL);
+
+  // Validate
+  if (_pwdSpecialMode === 'specific' && specialPool.length === 0) {
+    _pwdError = 'Enter at least one special character in the input box.';
     renderList(); return;
   }
 
-  // Calculate specific counts
   let specificTotal = 0;
   if (_pwdSpecialMode === 'specific') specificTotal += _pwdSpecialCount;
-  if (_pwdSmallMode === 'specific') specificTotal += _pwdSmallCount;
-  if (_pwdBigMode === 'specific') specificTotal += _pwdBigCount;
-  if (_pwdNumMode === 'specific') specificTotal += _pwdNumCount;
+  if (_pwdSmallMode   === 'specific') specificTotal += _pwdSmallCount;
+  if (_pwdBigMode     === 'specific') specificTotal += _pwdBigCount;
+  if (_pwdNumMode     === 'specific') specificTotal += _pwdNumCount;
 
   if (specificTotal > _pwdLength) {
-    _pwdError = `Specific counts (${specificTotal}) exceed total length (${_pwdLength}). Reduce counts or increase length.`;
+    _pwdError = `Specific counts total ${specificTotal} but password length is only ${_pwdLength}. Reduce counts or increase length.`;
     renderList(); return;
   }
 
-  // Build the filler pool from "no specific" categories
+  // Build filler pool from "no specific" categories
   let fillerPool = '';
-  if (_pwdSpecialMode === 'nospecific') fillerPool += (_pwdSpecialChars.trim() || '!@#$%&*()-_=+[]{}|;:,.<>?');
-  if (_pwdSmallMode === 'nospecific') fillerPool += LOWER;
-  if (_pwdBigMode === 'nospecific') fillerPool += UPPER;
-  if (_pwdNumMode === 'nospecific') fillerPool += DIGITS;
-
-  // If ALL are specific and there are remaining chars, use all pools
-  if (fillerPool.length === 0 && specificTotal < _pwdLength) {
-    fillerPool = LOWER + UPPER + DIGITS + (_pwdSpecialChars.trim() || '!@#$%&*');
-  }
+  if (_pwdSpecialMode === 'nospecific') fillerPool += specialPool;
+  if (_pwdSmallMode   === 'nospecific') fillerPool += LOWER;
+  if (_pwdBigMode     === 'nospecific') fillerPool += UPPER;
+  if (_pwdNumMode     === 'nospecific') fillerPool += DIGITS;
 
   const remaining = _pwdLength - specificTotal;
   if (remaining > 0 && fillerPool.length === 0) {
-    _pwdError = 'Cannot fill remaining characters. Enable at least one "No Specific" category or increase specific counts.';
-    renderList(); return;
+    // All specific but gap remains → use all pools as filler
+    fillerPool = LOWER + UPPER + DIGITS + specialPool;
   }
 
-  // Generate with retry to ensure uniqueness
-  let attempts = 0;
-  let pwd = '';
-  do {
-    let chars = [];
+  const rand = pool => pool[Math.floor(Math.random() * pool.length)];
 
-    // Place specific characters
+  // Generate with uniqueness retry
+  let attempts = 0, pwd = '';
+  do {
+    const chars = [];
     if (_pwdSpecialMode === 'specific') {
-      const pool = [...new Set(_pwdSpecialChars.trim().split(''))];
-      for (let i = 0; i < _pwdSpecialCount; i++) {
-        chars.push(pool[Math.floor(Math.random() * pool.length)]);
-      }
+      for (let i = 0; i < _pwdSpecialCount; i++) chars.push(rand(specialPool));
     }
     if (_pwdSmallMode === 'specific') {
-      for (let i = 0; i < _pwdSmallCount; i++) {
-        chars.push(LOWER[Math.floor(Math.random() * LOWER.length)]);
-      }
+      for (let i = 0; i < _pwdSmallCount; i++) chars.push(rand(LOWER));
     }
     if (_pwdBigMode === 'specific') {
-      for (let i = 0; i < _pwdBigCount; i++) {
-        chars.push(UPPER[Math.floor(Math.random() * UPPER.length)]);
-      }
+      for (let i = 0; i < _pwdBigCount; i++) chars.push(rand(UPPER));
     }
     if (_pwdNumMode === 'specific') {
-      for (let i = 0; i < _pwdNumCount; i++) {
-        chars.push(DIGITS[Math.floor(Math.random() * DIGITS.length)]);
-      }
+      for (let i = 0; i < _pwdNumCount; i++) chars.push(rand(DIGITS));
     }
+    for (let i = 0; i < remaining; i++) chars.push(rand(fillerPool));
 
-    // Fill remaining from filler pool
-    for (let i = 0; i < remaining; i++) {
-      chars.push(fillerPool[Math.floor(Math.random() * fillerPool.length)]);
-    }
-
-    // Shuffle (Fisher-Yates)
+    // Fisher-Yates shuffle
     for (let i = chars.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [chars[i], chars[j]] = [chars[j], chars[i]];
     }
-
     pwd = chars.join('');
     attempts++;
-  } while (_pwdHistory.has(pwd) && attempts < 100);
+  } while (_pwdHistory.has(pwd) && attempts < 200);
 
   if (_pwdHistory.has(pwd)) {
-    _pwdError = 'Could not generate a unique password. Try different settings.';
+    _pwdError = 'Could not generate a unique password. Try different settings or increase length.';
     renderList(); return;
   }
 
   _pwdHistory.add(pwd);
   _pwdResult = pwd;
-  _pwdError = '';
   renderList();
 }
 
