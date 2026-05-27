@@ -151,6 +151,22 @@ function injectFolderCSS() {
       transition: background .1s, color .1s;
     }
     .dh-folder-menu button:hover { background: #2a2a2a; color: #d4ff3a; }
+    .dh-selectall-btn {
+      background: #d4ff3a !important; color: #0c0b09 !important;
+      font-weight: 700 !important; border-radius: 4px !important;
+      padding: 6px 14px !important;
+    }
+    .dh-selectall-btn:hover { background: #e5ff6a !important; }
+    .dh-selectbar {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 0; flex-wrap: wrap;
+    }
+    .dh-selectbar__count {
+      font-size: 12px; color: #d4ff3a; font-weight: 600;
+    }
+    .dh-actionbar {
+      display: flex; gap: 6px; flex-wrap: wrap; padding: 6px 0 10px;
+    }
   `;
   document.head.appendChild(s);
 }
@@ -227,8 +243,8 @@ function renderGrid() {
 
     ${_selectMode && total > 0 ? `
       <div class="dh-selectbar">
-        <button class="vault-tool-btn" id="dh-selectall">
-          ${allFilteredSelected ? '☑ DESELECT VISIBLE' : '☐ SELECT VISIBLE'}
+        <button class="vault-tool-btn dh-selectall-btn" id="dh-selectall">
+          ${allFilteredSelected ? '✓ DESELECT ALL' : '☐ SELECT ALL'}
         </button>
         <span class="dh-selectbar__count">
           ${_selectedIds.size} selected
