@@ -1109,28 +1109,27 @@ async function importData(e) {
   const file = e.target.files && e.target.files[0];
   e.target.value='';
   if (!file) return;
-  const pw = prompt('Enter the password used when this file was exported:');
-  if (!pw) return;
-  try {
-    const text = await file.text();
-    const obj  = JSON.parse(text);
-    if (obj.module !== 'careerdetails') return toast('Not a Career Details export file','err');
-    const key  = await deriveKey(pw, b64ToBytes(obj.salt));
-    const dec  = await decryptBlob({ iv: obj.iv, ct: obj.ct }, key);
-    const incoming = dec.data;
-    if (!confirm(`Import will MERGE with current data. Exported: ${dec.exportedAt||'unknown'}. Continue?`)) return;
-    // Merge: incoming entries not already present by ID
-    ['work','edu','certs','photos','resume','companies'].forEach(s => {
-      const cur = _data[s]||[];
-      const inc = incoming[s]||[];
-      const ids = new Set(cur.map(x=>x.id));
-      inc.forEach(x => { if(!ids.has(x.id)) cur.push(x); });
-      _data[s] = cur;
-    });
-    await persist();
-    toast('✓ Import complete');
-    renderMain();
-  } catch(e) { toast('Import failed — wrong password or corrupt file','err'); }
+  showPasswordModal('Enter the password used when this file was exported:', async (pw) => {
+    try {
+      const text = await file.text();
+      const obj  = JSON.parse(text);
+      if (obj.module !== 'careerdetails') return toast('Not a Career Details export file','err');
+      const key  = await deriveKey(pw, b64ToBytes(obj.salt));
+      const dec  = await decryptBlob({ iv: obj.iv, ct: obj.ct }, key);
+      const incoming = dec.data;
+      if (!confirm(`Import will MERGE with current data. Exported: ${dec.exportedAt||'unknown'}. Continue?`)) return;
+      ['work','edu','certs','photos','resume','companies'].forEach(s => {
+        const cur = _data[s]||[];
+        const inc = incoming[s]||[];
+        const ids = new Set(cur.map(x=>x.id));
+        inc.forEach(x => { if(!ids.has(x.id)) cur.push(x); });
+        _data[s] = cur;
+      });
+      await persist();
+      toast('✓ Import complete');
+      renderMain();
+    } catch(e) { toast('Import failed — wrong password or corrupt file','err'); }
+  });
 }
 
 /* ============================================================
