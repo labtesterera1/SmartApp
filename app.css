@@ -3578,3 +3578,45 @@ a { color: var(--lime); text-decoration: none; }
   border: 1px solid var(--line-soft);
   border-radius: var(--radius);
 }
+
+/* Career Details — password modal */
+.cd-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(12,11,9,0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+.cd-modal {
+  background: var(--bg-tile);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 24px 20px 20px;
+  min-width: 300px;
+  max-width: 420px;
+  width: 90%;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.cd-modal__title {
+  font-size: 13px;
+  color: var(--ink-dim);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.cd-modal__actions {
+  display: flex;
+  gap: 8px;
+}
+/* shake animation for wrong password */
+@keyframes shake {
+  0%,100% { transform: translateX(0); }
+  20%      { transform: translateX(-6px); }
+  40%      { transform: translateX(6px); }
+  60%      { transform: translateX(-4px); }
+  80%      { transform: translateX(4px); }
+}
+.shake { animation: shake 0.4s ease; }
