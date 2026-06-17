@@ -71,46 +71,42 @@ function hasVault() { return !!localStorage.getItem(STORAGE_KEY); }
    ============================================================ */
 async function deriveKey(password, salt) {
   const enc = new TextEncoder();
-  const base = await crypto.subtle.importKey(
+  const baseKey = await crypto.subtle.importKey(
     'raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']
   );
   return crypto.subtle.deriveKey(
     { name: 'PBKDF2', salt, iterations: PBKDF2_ITER, hash: 'SHA-256' },
-    base,
+    baseKey,
     { name: 'AES-GCM', length: 256 },
     false, ['encrypt', 'decrypt']
   );
 }
-async function encrypt(plain, key) {
+async function encryptBlob(plain, key) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const ct = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv }, key,
     new TextEncoder().encode(JSON.stringify(plain))
   );
-  return { iv: b64(iv), ct: b64(new Uint8Array(ct)) };
+  return { iv: bytesToB64(iv), ct: bytesToB64(new Uint8Array(ct)) };
 }
-async function decrypt(blob, key) {
+async function decryptBlob(blob, key) {
   const pt = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv: unb64(blob.iv) },
-    key, unb64(blob.ct)
+    { name: 'AES-GCM', iv: b64ToBytes(blob.iv) },
+    key, b64ToBytes(blob.ct)
   );
   return JSON.parse(new TextDecoder().decode(pt));
 }
-function b64(u8)  { let s=''; for (const b of u8) s+=String.fromCharCode(b); return btoa(s); }
-function unb64(s) { const b=atob(s),u=new Uint8Array(b.length); for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i); return u; }
+function bytesToB64(bytes) { let s=''; for (const b of bytes) s+=String.fromCharCode(b); return btoa(s); }
+function b64ToBytes(b64)   { const s=atob(b64),u=new Uint8Array(s.length); for(let i=0;i<s.length;i++)u[i]=s.charCodeAt(i); return u; }
 
-async function save() {
-  // IMPORTANT: reuse the same salt that was used to derive _key.
-  // Generating a new salt here would make the stored data unreadable
-  // on next unlock because the key would be derived from a different salt.
-  if (!_key || !_salt) throw new Error('Not unlocked');
-  const blob = await encrypt(_data, _key);
-  localStorage.setItem(STORAGE_KEY, JSON.stringify({ salt: b64(_salt), ...blob }));
-}
-async function saveWithKey(key, salt) {
-  _key  = key;
-  _salt = salt;
-  await save();
+/* ── Storage helpers — identical pattern to Vault ── */
+function loadStored()    { const r=localStorage.getItem(STORAGE_KEY); return r?JSON.parse(r):null; }
+function saveStored(obj) { localStorage.setItem(STORAGE_KEY, JSON.stringify(obj)); }
+async function persist() {
+  // spread stored first so the original salt is ALWAYS preserved
+  const stored = loadStored();
+  const blob   = await encryptBlob(_data, _key);
+  saveStored({ ...stored, ...blob });
 }
 
 /* ============================================================
@@ -162,6 +158,8 @@ function renderSetup() {
    Unlock screen
    ============================================================ */
 function renderUnlock() {
+  // Random suffix breaks browser autofill association — same trick as Vault
+  const fieldName = `cdpw_${Math.random().toString(36).slice(2,10)}`;
   _root.innerHTML = `
     <div class="cd-lock-screen">
       <div class="cd-lock-icon">🔒</div>
@@ -169,38 +167,69 @@ function renderUnlock() {
       <div class="cd-lock-sub">Enter your master password to access your personal data.</div>
       <div class="vault-field">
         <span class="vault-field__label">Password</span>
-        <input type="password" id="pw" class="cd-pw-input" placeholder="Master password" autocomplete="current-password">
+        <div class="vault-pwrow vault-pwrow--unlock">
+          <input type="password" id="pw" class="cd-pw-input"
+                 name="${fieldName}"
+                 placeholder="Master password"
+                 autocomplete="off"
+                 data-form-type="other"
+                 data-lpignore="true"
+                 data-1p-ignore="true"
+                 autocorrect="off" autocapitalize="off" spellcheck="false"
+                 value="">
+          <button type="button" class="vault-pwrow__btn" id="pw-reveal" title="Show/hide">👁</button>
+        </div>
+        <div class="vault-err" id="unlock-err"></div>
       </div>
       <button class="btn btn--primary cd-btn" id="unlock-btn">UNLOCK</button>
       <button class="vault-tool-btn cd-reset-btn" id="reset-btn">Reset (wipe all data)</button>
     </div>
   `;
   const pw = _root.querySelector('#pw');
-  pw.focus();
-  _root.querySelector('#unlock-btn').onclick = async () => {
-    const p = pw.value;
-    if (!p) return toast('Enter password', 'warn');
+  // Kill autofill after render — same as Vault
+  setTimeout(() => { pw.value = ''; pw.focus(); }, 0);
+  setTimeout(() => { pw.value = ''; }, 120);
+
+  // Show/hide toggle
+  const reveal = _root.querySelector('#pw-reveal');
+  let revealed = false;
+  reveal.onclick = () => {
+    revealed = !revealed;
+    pw.type = revealed ? 'text' : 'password';
+    reveal.classList.toggle('is-active', revealed);
+    pw.focus();
+  };
+
+  const doUnlock = async () => {
+    let p = pw.value;
+    const errEl = _root.querySelector('#unlock-err');
+    errEl.textContent = '';
+    if (!p) return;
     try {
-      const stored = JSON.parse(localStorage.getItem(STORAGE_KEY));
-      const salt   = unb64(stored.salt);
-      const key    = await deriveKey(p, salt);
-      _data = await decrypt({ iv: stored.iv, ct: stored.ct }, key);
-      // ensure all sections exist (forward-compat)
+      const stored = loadStored();
+      const key    = await deriveKey(p, b64ToBytes(stored.salt));
+      p = ''; pw.value = ''; // wipe immediately
+      _data = stored.ct ? await decryptBlob({ iv: stored.iv, ct: stored.ct }, key) : emptyData();
       _data.work      = _data.work      || [];
       _data.edu       = _data.edu       || [];
       _data.certs     = _data.certs     || [];
       _data.photos    = _data.photos    || [];
       _data.resume    = _data.resume    || [];
       _data.companies = _data.companies || [];
-      _key  = key;
-      _salt = salt;   // keep salt so save() can reuse it
+      _key = key;
       startIdle();
       toast('✓ Unlocked');
       recordActivity('careerdetails', 'Unlocked');
       renderMain();
-    } catch(e) { toast('Wrong password', 'err'); pw.value=''; pw.focus(); }
+    } catch(e) {
+      p = ''; pw.value = '';
+      errEl.textContent = 'Wrong password.';
+      pw.classList.add('shake');
+      setTimeout(() => { pw.classList.remove('shake'); pw.focus(); }, 400);
+    }
   };
-  pw.addEventListener('keydown', e => { if(e.key==='Enter') _root.querySelector('#unlock-btn').click(); });
+  _root.querySelector('#unlock-btn').onclick = doUnlock;
+  pw.addEventListener('keydown', e => { if(e.key==='Enter') doUnlock(); });
   _root.querySelector('#reset-btn').onclick = () => {
     if (!confirm('This will permanently delete ALL Career Details data. Cannot be undone. Continue?')) return;
     localStorage.removeItem(STORAGE_KEY);
@@ -414,13 +443,13 @@ function renderPhotos(c) {
     if (!file) return;
     const data = await fileToBase64(file);
     _data.photos.unshift({ id:uuid(), name:file.name, mime:file.type, data, addedAt:Date.now(), primary: _data.photos.length===0 });
-    await save(); renderMain();
+    await persist(); renderMain();
     toast('✓ Photo added');
   };
   c.querySelectorAll('.photo-primary-btn').forEach(btn => {
     btn.onclick = async () => {
       _data.photos.forEach(p => p.primary = p.id===btn.dataset.id);
-      await save(); renderMain();
+      await persist(); renderMain();
       toast('✓ Primary photo set');
     };
   });
@@ -428,7 +457,7 @@ function renderPhotos(c) {
     btn.onclick = async () => {
       if (!confirm('Delete this photo?')) return;
       _data.photos = _data.photos.filter(p=>p.id!==btn.dataset.id);
-      await save(); renderMain();
+      await persist(); renderMain();
       toast('✓ Photo deleted');
     };
   });
@@ -480,13 +509,13 @@ function renderResume(c) {
     if (!file) return;
     const data = await fileToBase64(file);
     _data.resume.unshift({ id:uuid(), name:file.name, mime:file.type, size:file.size, data, addedAt:Date.now(), active:_data.resume.length===0, notes:'' });
-    await save(); renderMain();
+    await persist(); renderMain();
     toast('✓ Resume added');
   };
   c.querySelectorAll('.resume-active-btn').forEach(btn => {
     btn.onclick = async () => {
       _data.resume.forEach(r => r.active = r.id===btn.dataset.id);
-      await save(); renderMain();
+      await persist(); renderMain();
       toast('✓ Active resume set');
     };
   });
@@ -494,7 +523,7 @@ function renderResume(c) {
     btn.onclick = async () => {
       if (!confirm('Delete this resume version?')) return;
       _data.resume = _data.resume.filter(r=>r.id!==btn.dataset.id);
-      await save(); renderMain();
+      await persist(); renderMain();
       toast('✓ Resume deleted');
     };
   });
@@ -648,7 +677,7 @@ function renderEditor(ctx) {
     } else {
       _data[section].unshift(entry);
     }
-    await save();
+    await persist();
     toast(isNew ? '✓ Added' : '✓ Saved');
     recordActivity('careerdetails', section);
     backToMain();
@@ -993,7 +1022,7 @@ function renderPreview(el, raw) {
 async function deleteEntry(section, id) {
   if (!confirm('Delete this entry? Cannot be undone.')) return;
   _data[section] = _data[section].filter(x=>x.id!==id);
-  await save();
+  await persist();
   toast('✓ Deleted');
   backToMain();
 }
@@ -1001,25 +1030,67 @@ async function deleteEntry(section, id) {
 /* ============================================================
    Export / Import  (password-protected)
    ============================================================ */
+/* ── Password modal — replaces browser prompt() with hidden input ── */
+function showPasswordModal(title, onConfirm) {
+  const existing = document.getElementById('cd-pw-modal');
+  if (existing) existing.remove();
+  const modal = document.createElement('div');
+  modal.id = 'cd-pw-modal';
+  modal.className = 'cd-modal-overlay';
+  modal.innerHTML = `
+    <div class="cd-modal">
+      <div class="cd-modal__title">${title}</div>
+      <div class="vault-pwrow">
+        <input type="password" id="cd-modal-pw" class="cd-pw-input"
+               placeholder="Password" autocomplete="off"
+               data-lpignore="true" data-1p-ignore="true" value="">
+        <button type="button" class="vault-pwrow__btn" id="cd-modal-reveal">👁</button>
+      </div>
+      <div class="cd-modal__actions">
+        <button class="btn btn--primary" id="cd-modal-ok">OK</button>
+        <button class="btn" id="cd-modal-cancel">CANCEL</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  const inp = modal.querySelector('#cd-modal-pw');
+  setTimeout(() => { inp.value=''; inp.focus(); }, 0);
+
+  // show/hide
+  let rev = false;
+  modal.querySelector('#cd-modal-reveal').onclick = () => {
+    rev = !rev; inp.type = rev ? 'text' : 'password'; inp.focus();
+  };
+
+  const confirm = async () => {
+    const pw = inp.value;
+    inp.value='';
+    modal.remove();
+    if (pw) await onConfirm(pw);
+  };
+  modal.querySelector('#cd-modal-ok').onclick     = confirm;
+  modal.querySelector('#cd-modal-cancel').onclick = () => { inp.value=''; modal.remove(); };
+  inp.addEventListener('keydown', e => { if(e.key==='Enter') confirm(); if(e.key==='Escape') { inp.value=''; modal.remove(); } });
+}
+
 async function exportData() {
-  const pw = prompt('Enter your master password to export:');
-  if (!pw) return;
-  try {
-    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    const salt   = unb64(stored.salt);
-    const testKey = await deriveKey(pw, salt);
-    await decrypt({ iv: stored.iv, ct: stored.ct }, testKey); // verify
-    const exportSalt = crypto.getRandomValues(new Uint8Array(16));
-    const exportKey  = await deriveKey(pw, exportSalt);
-    const blob = await encrypt({ data: _data, exportedAt: new Date().toISOString() }, exportKey);
-    const payload = JSON.stringify({ app:'smartapp', module:'careerdetails', v:1, salt: b64(exportSalt), ...blob });
-    const url = URL.createObjectURL(new Blob([payload], { type:'application/json' }));
-    const a   = document.createElement('a');
-    a.href = url; a.download = `careerdetails-export-${ts()}.json`;
-    document.body.appendChild(a); a.click();
-    setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); }, 1000);
-    toast('✓ Exported (encrypted)');
-  } catch(e) { toast('Export failed — wrong password or error: '+e.message,'err'); }
+  showPasswordModal('Enter master password to export:', async (pw) => {
+    try {
+      const stored  = loadStored();
+      const testKey = await deriveKey(pw, b64ToBytes(stored.salt));
+      await decryptBlob({ iv: stored.iv, ct: stored.ct }, testKey); // verify pw
+      const exportSalt = crypto.getRandomValues(new Uint8Array(16));
+      const exportKey  = await deriveKey(pw, exportSalt);
+      const blob = await encryptBlob({ data: _data, exportedAt: new Date().toISOString() }, exportKey);
+      const payload = JSON.stringify({ app:'smartapp', module:'careerdetails', v:1, salt: bytesToB64(exportSalt), ...blob });
+      const url = URL.createObjectURL(new Blob([payload], { type:'application/json' }));
+      const a   = document.createElement('a');
+      a.href = url; a.download = `careerdetails-export-${ts()}.json`;
+      document.body.appendChild(a); a.click();
+      setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); }, 1000);
+      toast('✓ Exported (encrypted)');
+    } catch(e) { toast('Export failed — wrong password: '+e.message,'err'); }
+  });
 }
 
 async function importData(e) {
@@ -1045,7 +1116,7 @@ async function importData(e) {
       inc.forEach(x => { if(!ids.has(x.id)) cur.push(x); });
       _data[s] = cur;
     });
-    await save();
+    await persist();
     toast('✓ Import complete');
     renderMain();
   } catch(e) { toast('Import failed — wrong password or corrupt file','err'); }
@@ -1056,7 +1127,6 @@ async function importData(e) {
    ============================================================ */
 function lock() {
   _key  = null;
-  _salt = null;
   _data = null;
   _editCtx = null;
   clearTimeout(_idleTimer);
