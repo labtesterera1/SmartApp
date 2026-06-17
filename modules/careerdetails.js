@@ -10,6 +10,7 @@
    ============================================================ */
 
 import { toast } from '../core/ui.js';
+import { openReaderOverlay } from '../core/reader-overlay.js';
 import { recordActivity } from '../core/profile.js';
 
 const STORAGE_KEY   = 'smartapp_careerdetails_v1';
@@ -392,10 +393,8 @@ function renderPhotos(c) {
   c.innerHTML = `
     <div class="cd-file-zone">
       <div class="cd-file-label">Upload a new profile photo</div>
-      <label class="cd-file-pick">
-        <input type="file" id="photo-input" accept="image/*" hidden>
-        <button class="btn btn--primary" onclick="this.previousElementSibling.click()">📷 SELECT PHOTO</button>
-      </label>
+      <input type="file" id="photo-input" accept="image/*" hidden>
+      <button class="btn btn--primary" id="photo-pick-btn">📷 SELECT PHOTO</button>
       <div class="cd-note">All versions are stored. Mark one as Primary.</div>
     </div>
     <div class="cd-photo-grid" id="photo-grid">
@@ -404,6 +403,7 @@ function renderPhotos(c) {
         : _data.photos.map((p,i) => photoCardHtml(p,i)).join('')}
     </div>
   `;
+  c.querySelector('#photo-pick-btn').onclick = () => c.querySelector('#photo-input').click();
   c.querySelector('#photo-input').onchange = async (e) => {
     const file = e.target.files && e.target.files[0];
     e.target.value='';
@@ -459,10 +459,8 @@ function renderResume(c) {
   c.innerHTML = `
     <div class="cd-file-zone">
       <div class="cd-file-label">Upload a new resume version</div>
-      <label class="cd-file-pick">
-        <input type="file" id="resume-input" accept=".pdf,.doc,.docx,application/pdf,application/msword" hidden>
-        <button class="btn btn--primary" onclick="this.previousElementSibling.click()">📄 SELECT RESUME</button>
-      </label>
+      <input type="file" id="resume-input" accept=".pdf,.doc,.docx,application/pdf,application/msword" hidden>
+      <button class="btn btn--primary" id="resume-pick-btn">📄 SELECT RESUME</button>
       <div class="cd-note">All versions kept. Mark one as Active.</div>
     </div>
     <div class="cd-list" id="resume-list">
@@ -471,6 +469,7 @@ function renderResume(c) {
         : _data.resume.map((r,i) => resumeRowHtml(r,i)).join('')}
     </div>
   `;
+  c.querySelector('#resume-pick-btn').onclick = () => c.querySelector('#resume-input').click();
   c.querySelector('#resume-input').onchange = async (e) => {
     const file = e.target.files && e.target.files[0];
     e.target.value='';
@@ -773,6 +772,7 @@ function commentSection(val='') {
         <button type="button" class="rich-btn" data-act="headline" title="Headline"><b>H</b></button>
         <button type="button" class="rich-btn" data-act="color" title="Color"><span style="color:var(--lime)">◐</span></button>
         <button type="button" class="rich-btn" data-act="preview" title="Preview">👁</button>
+        <button type="button" class="rich-btn" data-act="readmode" title="Read Mode">📖 READ MODE</button>
       </div>
       <textarea class="vault-textarea rich-area" name="comments" rows="5"
                 placeholder="Add detailed notes, remarks, timeline… no character limit.">${esc(val)}</textarea>
@@ -796,10 +796,8 @@ function fileSection(files=[], label='Attachments (any file type, any size)') {
         `).join('')}
         ${files.length===0?'<div class="cd-file-empty">No files yet</div>':''}
       </div>
-      <label class="cd-file-pick-btn">
-        <input type="file" id="file-picker" multiple hidden>
-        <button type="button" class="vault-tool-btn" onclick="this.previousElementSibling.click()">📎 ATTACH FILE(S)</button>
-      </label>
+      <input type="file" id="file-picker" multiple hidden>
+      <button type="button" class="vault-tool-btn" id="file-pick-btn">📎 ATTACH FILE(S)</button>
     </div>
   `;
 }
@@ -848,6 +846,8 @@ function wireFilePicker(container, entry) {
     wireFileActions(container, entry, refreshFileList);
   };
 
+  const pickBtn = container.querySelector('#file-pick-btn');
+  if (pickBtn) pickBtn.onclick = () => picker.click();
   picker.onchange = async (e) => {
     const files = Array.from(e.target.files||[]);
     e.target.value='';
@@ -939,6 +939,12 @@ function collectForm(container, section, entry) {
    Rich text toolbar (Reader-style)
    ============================================================ */
 function handleRichBtn(act, ta, preview, btn) {
+  if (act==='readmode') {
+    // grab the section title from the nearest vault-field__label sibling if available
+    const label = btn.closest('.vault-field')?.querySelector('.vault-field__label')?.textContent || 'Comments';
+    openReaderOverlay({ title: label, body: ta.value, speakable: true });
+    return;
+  }
   if (act==='preview') {
     if (!preview.hidden) { preview.hidden=true; ta.style.display=''; btn.classList.remove('is-active'); }
     else { renderPreview(preview, ta.value); preview.hidden=false; ta.style.display='none'; btn.classList.add('is-active'); }
