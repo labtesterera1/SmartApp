@@ -12,15 +12,16 @@ const DB_NAME = 'smartapp';
 // store is never physically created and transactions throw
 // "object store was not found". v7 = safe ceiling above any version the
 // self-heal auto-bump could have reached (v5) + prior deployments (v3).
-const DB_VERSION = 7;
+const DB_VERSION = 8;
 
 // Register stores up-front so future modules can declare them here.
 // Adding a name here ALSO requires bumping DB_VERSION above.
 const STORES = [
-  'documents',     // Document Hub
-  'signupkit',     // Sign-Up Kit accounts
-  'signup_urls',   // Sign-Up Kit URLs (independent list)
-  'reader_notes',  // Reader / Notes module
+  'documents',       // Document Hub
+  'signupkit',       // Sign-Up Kit accounts
+  'signup_urls',     // Sign-Up Kit URLs (independent list)
+  'reader_notes',    // Reader / Notes module
+  'careerdetails',   // Career Details module (metadata only — blobs in localStorage encrypted)
 ];
 
 let _dbPromise = null;
