@@ -121,30 +121,42 @@ function renderSetup() {
         This password cannot be recovered — keep it safe.</div>
       <div class="vault-field">
         <span class="vault-field__label">New Password</span>
-        <input type="password" id="pw1" class="cd-pw-input" placeholder="Enter master password" autocomplete="new-password">
+        <div class="vault-pwrow">
+          <input type="password" id="pw1" class="cd-pw-input" placeholder="Enter master password" autocomplete="new-password">
+          <button type="button" class="vault-pwrow__btn" id="pw1-reveal">👁</button>
+        </div>
       </div>
       <div class="vault-field">
         <span class="vault-field__label">Confirm Password</span>
-        <input type="password" id="pw2" class="cd-pw-input" placeholder="Confirm master password" autocomplete="new-password">
+        <div class="vault-pwrow">
+          <input type="password" id="pw2" class="cd-pw-input" placeholder="Confirm master password" autocomplete="new-password">
+          <button type="button" class="vault-pwrow__btn" id="pw2-reveal">👁</button>
+        </div>
       </div>
+      <div class="vault-err" id="setup-err"></div>
       <button class="btn btn--primary cd-btn" id="setup-btn">CREATE &amp; UNLOCK</button>
       <div class="cd-lock-warn">⚠ If you forget this password, your data cannot be recovered.</div>
     </div>
   `;
   const pw1 = _root.querySelector('#pw1');
   const pw2 = _root.querySelector('#pw2');
+  // show/hide toggles
+  _root.querySelector('#pw1-reveal').onclick = () => { pw1.type = pw1.type==='password'?'text':'password'; pw1.focus(); };
+  _root.querySelector('#pw2-reveal').onclick = () => { pw2.type = pw2.type==='password'?'text':'password'; pw2.focus(); };
   _root.querySelector('#setup-btn').onclick = async () => {
     const p1 = pw1.value, p2 = pw2.value;
-    if (!p1) return toast('Enter a password', 'warn');
-    if (p1.length < 6) return toast('Password must be at least 6 characters', 'warn');
-    if (p1 !== p2) return toast('Passwords do not match', 'warn');
+    const errEl = _root.querySelector('#setup-err');
+    errEl.textContent = '';
+    if (!p1) { errEl.textContent = 'Enter a password.'; return; }
+    if (p1.length < 6) { errEl.textContent = 'Password must be at least 6 characters.'; return; }
+    if (p1 !== p2) { errEl.textContent = 'Passwords do not match.'; return; }
     try {
       const salt = crypto.getRandomValues(new Uint8Array(16));
-      const key  = await deriveKey(p1, salt);
+      _key  = await deriveKey(p1, salt);
       _data = emptyData();
-      const blob = await encrypt(_data, key);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ salt: b64(salt), ...blob }));
-      _key = key;
+      // Store salt first, then persist — exactly like Vault's handleCreate
+      saveStored({ salt: bytesToB64(salt), iv: '', ct: '' });
+      await persist();
       startIdle();
       toast('✓ Career Details unlocked');
       recordActivity('careerdetails', 'Setup complete');
@@ -1103,11 +1115,10 @@ async function importData(e) {
     const text = await file.text();
     const obj  = JSON.parse(text);
     if (obj.module !== 'careerdetails') return toast('Not a Career Details export file','err');
-    const salt = unb64(obj.salt);
-    const key  = await deriveKey(pw, salt);
-    const dec  = await decrypt({ iv: obj.iv, ct: obj.ct }, key);
+    const key  = await deriveKey(pw, b64ToBytes(obj.salt));
+    const dec  = await decryptBlob({ iv: obj.iv, ct: obj.ct }, key);
     const incoming = dec.data;
-    if (!confirm(`Import will MERGE with current data. Exported at: ${dec.exportedAt||'unknown'}. Continue?`)) return;
+    if (!confirm(`Import will MERGE with current data. Exported: ${dec.exportedAt||'unknown'}. Continue?`)) return;
     // Merge: incoming entries not already present by ID
     ['work','edu','certs','photos','resume','companies'].forEach(s => {
       const cur = _data[s]||[];
