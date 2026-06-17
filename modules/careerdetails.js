@@ -100,13 +100,16 @@ function b64(u8)  { let s=''; for (const b of u8) s+=String.fromCharCode(b); ret
 function unb64(s) { const b=atob(s),u=new Uint8Array(b.length); for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i); return u; }
 
 async function save() {
-  const salt = crypto.getRandomValues(new Uint8Array(16));
-  const key  = _key; // use current in-memory key
-  const blob = await encrypt(_data, key);
-  localStorage.setItem(STORAGE_KEY, JSON.stringify({ salt: b64(salt), ...blob }));
+  // IMPORTANT: reuse the same salt that was used to derive _key.
+  // Generating a new salt here would make the stored data unreadable
+  // on next unlock because the key would be derived from a different salt.
+  if (!_key || !_salt) throw new Error('Not unlocked');
+  const blob = await encrypt(_data, _key);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({ salt: b64(_salt), ...blob }));
 }
-async function saveWithKey(key) {
-  _key = key;
+async function saveWithKey(key, salt) {
+  _key  = key;
+  _salt = salt;
   await save();
 }
 
@@ -189,7 +192,8 @@ function renderUnlock() {
       _data.photos    = _data.photos    || [];
       _data.resume    = _data.resume    || [];
       _data.companies = _data.companies || [];
-      _key = key;
+      _key  = key;
+      _salt = salt;   // keep salt so save() can reuse it
       startIdle();
       toast('✓ Unlocked');
       recordActivity('careerdetails', 'Unlocked');
@@ -1052,6 +1056,7 @@ async function importData(e) {
    ============================================================ */
 function lock() {
   _key  = null;
+  _salt = null;
   _data = null;
   _editCtx = null;
   clearTimeout(_idleTimer);
