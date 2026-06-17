@@ -3454,7 +3454,20 @@ a { color: var(--lime); text-decoration: none; }
   margin-top: 4px;
 }
 .cd-input:focus { outline: none; border-color: var(--lime-dim); }
-.cd-select { cursor: pointer; }
+.cd-select {
+  cursor: pointer;
+  background: var(--bg-soft);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 7px 10px;
+  font-size: 12px;
+  font-family: var(--mono);
+  appearance: auto;
+  -webkit-appearance: auto;
+}
+.cd-select:focus { outline: none; border-color: var(--lime-dim); }
+.cd-select option { background: var(--bg-soft); color: var(--ink); }
 
 /* File section */
 .cd-file-list {
