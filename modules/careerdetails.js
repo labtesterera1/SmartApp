@@ -35,6 +35,8 @@ function emptyData() {
     photos: [],   // profile photos (versioned)
     resume: [],   // resume versions
     companies: [], // job applications
+    idproof:  [],  // ID proofs (Aadhar, Passport, PAN etc.)
+    dossier:  [],  // personal/professional documents
   };
 }
 
@@ -228,6 +230,8 @@ function renderUnlock() {
       _data.photos    = _data.photos    || [];
       _data.resume    = _data.resume    || [];
       _data.companies = _data.companies || [];
+      _data.idproof   = _data.idproof   || [];
+      _data.dossier   = _data.dossier   || [];
       _key = key;
       startIdle();
       toast('✓ Unlocked');
@@ -261,6 +265,8 @@ const TABS = [
   { id:'photos',    label:'📷 Photos'    },
   { id:'resume',    label:'📄 Resume'    },
   { id:'companies', label:'🏢 Companies' },
+  { id:'idproof',   label:'🪪 ID Proof'  },
+  { id:'dossier',   label:'🗂 Dossier'   },
 ];
 
 function renderMain() {
@@ -299,6 +305,8 @@ function renderTab(container) {
     case 'photos':    return renderPhotos(container);
     case 'resume':    return renderResume(container);
     case 'companies': return renderCompanies(container);
+    case 'idproof':   return renderIdProof(container);
+    case 'dossier':   return renderDossier(container);
   }
 }
 
@@ -654,6 +662,135 @@ function companyRowHtml(e) {
 }
 
 /* ============================================================
+   TAB 7 — ID Proof
+   ============================================================ */
+function renderIdProof(c) {
+  c.innerHTML = `
+    <button class="btn btn--primary cd-add-btn" id="add-idproof">+ ADD ID PROOF</button>
+    <div class="cd-list">
+      ${_data.idproof.length === 0
+        ? `<div class="cd-empty">No ID proofs added yet.</div>`
+        : _data.idproof.map(e => idProofRowHtml(e)).join('')}
+    </div>
+  `;
+  c.querySelector('#add-idproof').onclick = () => { _editCtx = { section:'idproof', id:null }; renderEditor(_editCtx); };
+  c.querySelectorAll('.cd-row-edit').forEach(btn => {
+    btn.onclick = () => { _editCtx = { section:'idproof', id: btn.dataset.id }; renderEditor(_editCtx); };
+  });
+  c.querySelectorAll('.cd-row-del').forEach(btn => {
+    btn.onclick = () => deleteEntry('idproof', btn.dataset.id);
+  });
+}
+
+function idProofRowHtml(e) {
+  return `
+    <div class="cd-row" data-id="${e.id}">
+      <div class="cd-row__main">
+        <div class="cd-row__title">🪪 ${esc(e.idName||'—')}</div>
+        <div class="cd-row__sub">${e.idNumber ? 'No: ' + esc(e.idNumber) : ''}</div>
+        <div class="cd-row__meta">
+          ${e.issuedBy ? 'Issued by: ' + esc(e.issuedBy) : ''}
+          ${e.issueDate ? ' · ' + esc(e.issueDate) : ''}
+          ${e.expiryDate ? ' · Expires: ' + esc(e.expiryDate) : ''}
+        </div>
+        ${e.comments ? `<div class="cd-row__comment">${esc(e.comments.slice(0,100))}${e.comments.length>100?'…':''}</div>` : ''}
+        ${(e.files||[]).length ? `<div class="cd-row__files">📎 ${e.files.length} file(s)</div>` : ''}
+      </div>
+      <div class="cd-row__actions">
+        <button class="vault-tool-btn cd-row-edit" data-id="${e.id}">EDIT</button>
+        <button class="vault-tool-btn cd-row-del" data-id="${e.id}">DEL</button>
+      </div>
+    </div>
+  `;
+}
+
+/* ============================================================
+   TAB 8 — Dossier (Personal/Professional Documents)
+   ============================================================ */
+function renderDossier(c) {
+  // filter bar
+  const types = [...new Set(_data.dossier.map(x=>x.docType).filter(Boolean))].sort();
+  c.innerHTML = `
+    <div class="cd-filter-bar">
+      <select id="dossier-filter" class="cd-select">
+        <option value="">All Types</option>
+        ${types.map(t=>`<option value="${esc(t)}">${esc(t)}</option>`).join('')}
+      </select>
+      <button class="vault-tool-btn" id="dossier-clear">CLEAR</button>
+    </div>
+    <button class="btn btn--primary cd-add-btn" id="add-dossier">+ ADD DOCUMENT</button>
+    <div class="cd-list" id="dossier-list">
+      ${renderDossierList()}
+    </div>
+  `;
+  let _dossierFilter = '';
+  c.querySelector('#dossier-filter').onchange = (e) => {
+    _dossierFilter = e.target.value;
+    c.querySelector('#dossier-list').innerHTML = renderDossierList(_dossierFilter);
+    wireDossierActions(c);
+  };
+  c.querySelector('#dossier-clear').onclick = () => {
+    _dossierFilter = '';
+    c.querySelector('#dossier-filter').value = '';
+    c.querySelector('#dossier-list').innerHTML = renderDossierList('');
+    wireDossierActions(c);
+  };
+  c.querySelector('#add-dossier').onclick = () => { _editCtx = { section:'dossier', id:null }; renderEditor(_editCtx); };
+  wireDossierActions(c);
+}
+
+function renderDossierList(filter='') {
+  const list = filter
+    ? _data.dossier.filter(x => x.docType === filter)
+    : _data.dossier;
+  if (list.length === 0) return `<div class="cd-empty">${_data.dossier.length===0?'No documents added yet.':'No results match the filter.'}</div>`;
+  return list.map(e => dossierRowHtml(e)).join('');
+}
+
+function wireDossierActions(c) {
+  c.querySelectorAll('.cd-row-edit').forEach(btn => {
+    btn.onclick = () => { _editCtx = { section:'dossier', id: btn.dataset.id }; renderEditor(_editCtx); };
+  });
+  c.querySelectorAll('.cd-row-del').forEach(btn => {
+    btn.onclick = () => deleteEntry('dossier', btn.dataset.id);
+  });
+  c.querySelectorAll('.dossier-dl-btn').forEach(btn => {
+    btn.onclick = () => {
+      const entry = _data.dossier.find(x=>x.id===btn.dataset.id);
+      if (entry && (entry.files||[]).length) {
+        entry.files.forEach(f => downloadFile(f.data, f.name, f.mime));
+      } else toast('No files attached','warn');
+    };
+  });
+}
+
+function dossierRowHtml(e) {
+  const fileCount = (e.files||[]).length;
+  return `
+    <div class="cd-row" data-id="${e.id}">
+      <div class="cd-row__main">
+        <div class="cd-row__title">🗂 ${esc(e.docName||'—')}
+          ${e.docType ? `<span class="cd-badge">${esc(e.docType)}</span>` : ''}
+        </div>
+        <div class="cd-row__sub">${e.docNumber ? 'No: ' + esc(e.docNumber) : ''}</div>
+        <div class="cd-row__meta">
+          ${e.issuedBy ? 'Issued by: ' + esc(e.issuedBy) : ''}
+          ${e.issueDate ? ' · ' + esc(e.issueDate) : ''}
+          ${e.expiryDate ? ' · Expires: ' + esc(e.expiryDate) : ''}
+        </div>
+        ${e.comments ? `<div class="cd-row__comment">${esc(e.comments.slice(0,100))}${e.comments.length>100?'…':''}</div>` : ''}
+        ${fileCount ? `<div class="cd-row__files">📎 ${fileCount} file(s)</div>` : ''}
+      </div>
+      <div class="cd-row__actions">
+        <button class="vault-tool-btn cd-row-edit" data-id="${e.id}">EDIT</button>
+        ${fileCount ? `<button class="vault-tool-btn dossier-dl-btn" data-id="${e.id}">⬇ DL</button>` : ''}
+        <button class="vault-tool-btn cd-row-del" data-id="${e.id}">DEL</button>
+      </div>
+    </div>
+  `;
+}
+
+/* ============================================================
    Editor — dynamic form per section
    ============================================================ */
 function renderEditor(ctx) {
@@ -706,6 +843,8 @@ function newEntry(section) {
     case 'edu':       return { ...base, level:'', institution:'', university:'', degree:'', specialization:'', mode:'', yearOfPassing:'', fromDate:'', toDate:'', rollNo:'', percentage:'' };
     case 'certs':     return { ...base, name:'', issuer:'', certId:'', issueDate:'', expiryDate:'', credUrl:'' };
     case 'companies': return { ...base, company:'', url:'', hrContact:'', hrEmail:'', tagEmail:'', applyYear:'', applyMonth:'', passwords:[], jdFile:null };
+    case 'idproof':   return { ...base, idName:'', idNumber:'', issuedBy:'', issueDate:'', expiryDate:'' };
+    case 'dossier':   return { ...base, docName:'', docNumber:'', docType:'', issuedBy:'', issueDate:'', expiryDate:'' };
     default:          return base;
   }
 }
@@ -714,7 +853,30 @@ function newEntry(section) {
 function buildForm(container, section, entry) {
   let html = '';
 
-  if (section === 'work') {
+  if (section === 'idproof') {
+    const idTypes = ['Passport','Aadhaar Card','PAN Card','Driving Licence','Voter ID','National ID','Employee ID Card','Student ID','Birth Certificate','Other'];
+    html = `
+      ${fieldSelect('ID Type *', 'idName', idTypes, entry.idName)}
+      ${field('ID Number *', 'idNumber', entry.idNumber)}
+      ${field('Issued By', 'issuedBy', entry.issuedBy)}
+      ${fieldDate('Issue Date', 'issueDate', entry.issueDate)}
+      ${fieldDate('Expiry Date (if any)', 'expiryDate', entry.expiryDate)}
+      ${fileSection(entry.files, 'Upload ID Proof (image/PDF — any size)')}
+      ${commentSection(entry.comments)}
+    `;
+  } else if (section === 'dossier') {
+    const docTypes = ['Agreement','Contract','Appointment Letter','Offer Letter','Relieving Letter','Salary Slip','Bank Statement','Tax Document','Insurance','Property Document','Legal Document','Academic Certificate','Medical Record','Other'];
+    html = `
+      ${field('Document Name *', 'docName', entry.docName)}
+      ${field('Document Number / Reference ID', 'docNumber', entry.docNumber)}
+      ${fieldSelect('Document Type', 'docType', docTypes, entry.docType)}
+      ${field('Issued By / Source', 'issuedBy', entry.issuedBy)}
+      ${fieldDate('Issue Date', 'issueDate', entry.issueDate)}
+      ${fieldDate('Expiry Date (if any)', 'expiryDate', entry.expiryDate)}
+      ${fileSection(entry.files, 'Upload Document (any format, any size — including ZIP)')}
+      ${commentSection(entry.comments)}
+    `;
+  } else if (section === 'work') {
     html = `
       ${field('Job Title *', 'jobTitle', entry.jobTitle)}
       ${field('Second Title / Role (if any)', 'jobTitle2', entry.jobTitle2)}
@@ -1118,7 +1280,7 @@ async function importData(e) {
       const dec  = await decryptBlob({ iv: obj.iv, ct: obj.ct }, key);
       const incoming = dec.data;
       if (!confirm(`Import will MERGE with current data. Exported: ${dec.exportedAt||'unknown'}. Continue?`)) return;
-      ['work','edu','certs','photos','resume','companies'].forEach(s => {
+      ['work','edu','certs','photos','resume','companies','idproof','dossier'].forEach(s => {
         const cur = _data[s]||[];
         const inc = incoming[s]||[];
         const ids = new Set(cur.map(x=>x.id));
