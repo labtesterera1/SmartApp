@@ -997,8 +997,9 @@ function fileSection(files=[], label='Attachments (any file type, any size)') {
           <div class="cd-file-item" data-fid="${f.id}">
             <span class="cd-file-item__name">${esc(f.name)}</span>
             <span class="cd-file-item__size">${fileSizeStr(f.size)}</span>
-            <button type="button" class="vault-tool-btn file-dl-btn" data-fid="${f.id}">⬇</button>
-            <button type="button" class="vault-tool-btn file-del-btn" data-fid="${f.id}">×</button>
+            ${canView(f.mime, f.name) ? `<button type="button" class="vault-tool-btn file-view-btn" data-fid="${f.id}" title="View">👁</button>` : ''}
+            <button type="button" class="vault-tool-btn file-dl-btn" data-fid="${f.id}" title="Download">⬇</button>
+            <button type="button" class="vault-tool-btn file-del-btn" data-fid="${f.id}" title="Remove">×</button>
           </div>
         `).join('')}
         ${files.length===0?'<div class="cd-file-empty">No files yet</div>':''}
@@ -1082,6 +1083,12 @@ function wireFilePicker(container, entry) {
 }
 
 function wireFileActions(container, entry, refresh) {
+  container.querySelectorAll('.file-view-btn').forEach(btn => {
+    btn.onclick = () => {
+      const f = (entry.files||[]).find(x=>x.id===btn.dataset.fid);
+      if (f) openFileViewer(f.data, f.name, f.mime);
+    };
+  });
   container.querySelectorAll('.file-dl-btn').forEach(btn => {
     btn.onclick = () => {
       const f = (entry.files||[]).find(x=>x.id===btn.dataset.fid);
@@ -1354,6 +1361,50 @@ async function fileToBase64(file) {
     r.onload=()=>res(r.result);
     r.onerror=()=>rej(r.error);
     r.readAsDataURL(file);
+  });
+}
+
+
+/* ── File viewer — opens image/PDF inline in overlay ── */
+function canView(mime, name) {
+  const m = (mime||'').toLowerCase();
+  const n = (name||'').toLowerCase();
+  return m.startsWith('image/') || m === 'application/pdf'
+      || n.endsWith('.jpg') || n.endsWith('.jpeg')
+      || n.endsWith('.png') || n.endsWith('.gif')
+      || n.endsWith('.webp') || n.endsWith('.pdf');
+}
+
+function openFileViewer(dataUrl, name, mime) {
+  const existing = document.getElementById('cd-file-viewer');
+  if (existing) existing.remove();
+
+  const isImg = (mime||'').startsWith('image/') || /\.(jpg|jpeg|png|gif|webp)$/i.test(name);
+  const isPdf = (mime||'') === 'application/pdf' || /\.pdf$/i.test(name);
+
+  const overlay = document.createElement('div');
+  overlay.id = 'cd-file-viewer';
+  overlay.className = 'cd-viewer-overlay';
+  overlay.innerHTML = `
+    <div class="cd-viewer-box">
+      <div class="cd-viewer-toolbar">
+        <span class="cd-viewer-name">${esc(name)}</span>
+        <button class="vault-tool-btn" id="cd-viewer-dl">⬇ Download</button>
+        <button class="vault-tool-btn cd-viewer-close" id="cd-viewer-close">✕ Close</button>
+      </div>
+      <div class="cd-viewer-body" id="cd-viewer-body">
+        ${isImg ? `<img src="${dataUrl}" class="cd-viewer-img" alt="${esc(name)}">` : ''}
+        ${isPdf ? `<iframe src="${dataUrl}" class="cd-viewer-iframe" title="${esc(name)}"></iframe>` : ''}
+        ${!isImg && !isPdf ? `<div class="cd-viewer-unsupported">Preview not available for this file type.<br>Use the Download button.</div>` : ''}
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.querySelector('#cd-viewer-dl').onclick    = () => downloadFile(dataUrl, name, mime);
+  overlay.querySelector('#cd-viewer-close').onclick = () => overlay.remove();
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  document.addEventListener('keydown', function esc(e) {
+    if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', esc); }
   });
 }
 
