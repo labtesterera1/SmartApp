@@ -801,6 +801,14 @@ function renderResume(c) {
       catch(err) { toast('Download failed: '+err.message, 'err'); }
     };
   });
+  c.querySelectorAll('.resume-view-btn').forEach(btn => {
+    btn.onclick = async () => {
+      const viewable = _data.resume.filter(x => canView(x.mime, x.name));
+      const startIndex = viewable.findIndex(x => x.id === btn.dataset.id);
+      if (startIndex === -1) { toast('Preview not available for this file type — use Download instead', 'warn'); return; }
+      await openFileViewerGallery(viewable, startIndex);
+    };
+  });
 }
 
 function resumeRowHtml(r, i) {
@@ -814,6 +822,7 @@ function resumeRowHtml(r, i) {
       </div>
       <div class="cd-row__actions">
         ${!r.active ? `<button class="vault-tool-btn resume-active-btn" data-id="${r.id}">SET ACTIVE</button>` : ''}
+        ${canView(r.mime, r.name) ? `<button class="vault-tool-btn resume-view-btn" data-id="${r.id}">👁 VIEW</button>` : ''}
         <button class="vault-tool-btn resume-dl-btn" data-id="${r.id}">⬇ DL</button>
         <button class="vault-tool-btn resume-del-btn" data-id="${r.id}">DEL</button>
       </div>
