@@ -3711,3 +3711,13 @@ a { color: var(--lime); text-decoration: none; }
   letter-spacing: 0.08em;
   margin-top: -6px;
 }
+
+/* Career Details — storage usage indicator */
+.cd-storage-tag {
+  font-size: 10px;
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  white-space: nowrap;
+  align-self: center;
+}
+.cd-storage-tag--warn { color: var(--warn); }
