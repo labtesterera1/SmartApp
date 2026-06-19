@@ -1378,32 +1378,33 @@ async function orgShareNative(file, blob) {
     lastModified: file.addedAt || Date.now(),
   });
 
-  const canShareFiles = navigator.canShare && navigator.canShare({ files: [fileObj] });
+  /* CRITICAL: navigator.share() can only be called ONCE per user click.
+     Browsers tie it to the "user activation" of that click, and calling
+     it a second time — even synchronously from a catch block — fails
+     with "must be handling a user gesture", because the activation was
+     already consumed by the first attempt. So the choice between
+     file-share and text-share must be made BEFORE calling share() at
+     all, using only canShare() (which does NOT consume the gesture),
+     and there is no retry after that — whichever path is chosen is
+     the only navigator.share() call made for this click.
 
-  // Try sharing the actual file first (works reliably for PDF/images).
-  // DOC/DOCX is known to be unreliable here across browsers — canShare()
-  // can report true and then the real share() call still rejects it with
-  // a permission-style error, so this always has a working fallback
-  // rather than just erroring out.
-  if (canShareFiles) {
-    try {
-      await navigator.share({ title: file.name, text: file.name, files: [fileObj] });
-      toast('✓ Shared');
-      return;
-    } catch(err) {
-      if (err.name === 'AbortError') return; // user cancelled — don't fall back
-      console.warn('[Doc Organizer] file share rejected, falling back to text-only', {
-        name: err.name, message: err.message, fileName: file.name, mime: mimeType,
-      });
-      // fall through to text-only share below
-    }
-  }
+     DOC/DOCX is also excluded from file-share up front: canShare() can
+     report true for it and then the real share() call still rejects
+     it, which is exactly what caused the original bug. */
+  const isWordDoc = isDocFile(mimeType, file.name);
+  const canShareFiles = !isWordDoc && navigator.canShare && navigator.canShare({ files: [fileObj] });
 
   try {
-    await navigator.share({ title: file.name, text: `${file.name} · ${fileSizeStr(file.size)} — use Download to get the actual file, this device's share doesn't support attaching ${mimeType.includes('word')?'Word documents':'this file type'} directly.` });
-    toast('Shared as text — Word docs aren\'t reliably file-shareable on this device. Use Download instead.', 'warn');
+    if (canShareFiles) {
+      await navigator.share({ title: file.name, text: file.name, files: [fileObj] });
+      toast('✓ Shared');
+    } else {
+      const reason = isWordDoc ? "Word documents aren't reliably file-shareable on this device — use Download instead." : '';
+      await navigator.share({ title: file.name, text: `${file.name} · ${fileSizeStr(file.size)}${reason ? ' — ' + reason : ''}` });
+      toast(isWordDoc ? 'Shared as text — use Download to send the actual file' : 'Text shared (file attach not supported here)', 'warn');
+    }
   } catch(err) {
-    if (err.name === 'AbortError') return;
+    if (err.name === 'AbortError') return; // user cancelled — not an error
     toast('Share failed: ' + err.message + ' — try Download instead', 'err');
   }
 }
