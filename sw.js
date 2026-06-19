@@ -7,7 +7,7 @@
 
    To force users to pick up new code: bump CACHE_NAME below.
    ============================================================ */
-const CACHE_NAME = 'smartapp-shell-v0.80';
+const CACHE_NAME = 'smartapp-shell-v0.82';
 const SHELL = [
   './',
   './index.html',
@@ -29,6 +29,7 @@ const SHELL = [
   './vendor/pdf-lib.esm.min.js',
   './vendor/pdf.min.mjs',
   './vendor/pdf.worker.min.mjs',
+  './vendor/mammoth.browser.min.js',
   './modules/ledger.js',
   './modules/documents.js',
   './modules/sweep.js',
