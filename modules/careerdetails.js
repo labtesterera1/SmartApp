@@ -845,13 +845,6 @@ function renderResume(c) {
       await openFileViewerGallery(viewable, startIndex);
     };
   });
-  c.querySelectorAll('.resume-launch-btn').forEach(btn => {
-    btn.onclick = async () => {
-      const r = _data.resume.find(x=>x.id===btn.dataset.id);
-      if (!r) return;
-      await launchFileBlob(r.id, r.name, r.mime);
-    };
-  });
   c.querySelectorAll('.resume-docxview-btn').forEach(btn => {
     btn.onclick = async () => {
       const r = _data.resume.find(x=>x.id===btn.dataset.id);
@@ -874,7 +867,6 @@ function resumeRowHtml(r, i) {
         ${!r.active ? `<button class="vault-tool-btn resume-active-btn" data-id="${r.id}">SET ACTIVE</button>` : ''}
         ${canView(r.mime, r.name) ? `<button class="vault-tool-btn resume-view-btn" data-id="${r.id}">👁 VIEW</button>` : ''}
         ${isDocxFile(r.mime, r.name) ? `<button class="vault-tool-btn resume-docxview-btn" data-id="${r.id}">📖 PREVIEW</button>` : ''}
-        ${isDocFile(r.mime, r.name) ? `<button class="vault-tool-btn resume-launch-btn" data-id="${r.id}">🚀 LAUNCH</button>` : ''}
         <button class="vault-tool-btn resume-dl-btn" data-id="${r.id}">⬇ DL</button>
         <button class="vault-tool-btn resume-del-btn" data-id="${r.id}">DEL</button>
       </div>
@@ -1305,9 +1297,7 @@ async function renderOrgFileDetail(c) {
 
     <div class="dh-detail-actions">
       <a class="btn" id="org-dl" href="${objUrl}" download="${esc(file.name)}">DOWNLOAD</a>
-      ${isDoc
-        ? `<button class="btn" id="org-launch">LAUNCH</button>`
-        : `<a class="btn" id="org-open" href="${objUrl}" target="_blank" rel="noopener">OPEN</a>`}
+      ${!isDoc ? `<a class="btn" id="org-open" href="${objUrl}" target="_blank" rel="noopener">OPEN</a>` : ''}
       <button class="btn vault-actions__del" id="org-del">DELETE</button>
     </div>
 
@@ -1333,8 +1323,6 @@ async function renderOrgFileDetail(c) {
   c.querySelector('#org-dl').addEventListener('click', () => toast('✓ Saved to Downloads'));
   const openBtn = c.querySelector('#org-open');
   if (openBtn) openBtn.addEventListener('click', () => toast('Opening…'));
-  const launchBtn = c.querySelector('#org-launch');
-  if (launchBtn) launchBtn.onclick = () => launchFileBlob(file.id, file.name, file.mime);
   const docxPreviewBtn = c.querySelector('#org-docx-preview');
   if (docxPreviewBtn) docxPreviewBtn.onclick = () => openDocxPreview(file.id, file.name, file.mime);
   c.querySelector('#org-del').onclick = async () => {
