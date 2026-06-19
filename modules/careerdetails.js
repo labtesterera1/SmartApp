@@ -139,6 +139,33 @@ async function deleteFileBlob(fileId) {
   try { await db.delete(IDB_STORE, fileId); } catch(e) { /* best-effort */ }
 }
 
+/* Converts a data: URI directly into a real Blob using atob/Uint8Array,
+   without round-tripping through fetch(). Fetching a data: URI is a
+   non-standard browser behavior, and on some Android Chrome versions
+   the resulting Blob can carry restricted permissions that cause
+   navigator.share() to fail with "Permission Denied" — this avoids
+   that entirely by constructing the Blob the same proven way
+   Document Hub does (a native Blob straight from the bytes). */
+function dataUrlToBlob(dataUrl, mimeOverride) {
+  const [header, base64] = dataUrl.split(',');
+  const mime = mimeOverride || (header.match(/data:([^;]+)/) || [])[1] || 'application/octet-stream';
+  const bin = atob(base64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i=0; i<bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+}
+
+/* Same direct conversion, but returns the raw ArrayBuffer instead of
+   a Blob — used where a library (e.g. mammoth.js) needs bytes
+   directly rather than a Blob object. */
+function dataUrlToArrayBuffer(dataUrl) {
+  const base64 = dataUrl.split(',')[1];
+  const bin = atob(base64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i=0; i<bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes.buffer;
+}
+
 /* ============================================================
    One-time migration: older saves (before the IndexedDB switch)
    stored file BYTES directly on the file object as `f.data`
@@ -825,6 +852,13 @@ function renderResume(c) {
       await launchFileBlob(r.id, r.name, r.mime);
     };
   });
+  c.querySelectorAll('.resume-docxview-btn').forEach(btn => {
+    btn.onclick = async () => {
+      const r = _data.resume.find(x=>x.id===btn.dataset.id);
+      if (!r) return;
+      await openDocxPreview(r.id, r.name, r.mime);
+    };
+  });
 }
 
 function resumeRowHtml(r, i) {
@@ -839,6 +873,7 @@ function resumeRowHtml(r, i) {
       <div class="cd-row__actions">
         ${!r.active ? `<button class="vault-tool-btn resume-active-btn" data-id="${r.id}">SET ACTIVE</button>` : ''}
         ${canView(r.mime, r.name) ? `<button class="vault-tool-btn resume-view-btn" data-id="${r.id}">👁 VIEW</button>` : ''}
+        ${isDocxFile(r.mime, r.name) ? `<button class="vault-tool-btn resume-docxview-btn" data-id="${r.id}">📖 PREVIEW</button>` : ''}
         ${isDocFile(r.mime, r.name) ? `<button class="vault-tool-btn resume-launch-btn" data-id="${r.id}">🚀 LAUNCH</button>` : ''}
         <button class="vault-tool-btn resume-dl-btn" data-id="${r.id}">⬇ DL</button>
         <button class="vault-tool-btn resume-del-btn" data-id="${r.id}">DEL</button>
@@ -1225,13 +1260,14 @@ async function renderOrgFileDetail(c) {
   try { dataUrl = await loadFileBlob(file.id); }
   catch(err) { c.innerHTML = `<div class="cd-empty">Could not load this file: ${esc(err.message)}</div>`; return; }
 
-  const blobRes  = await fetch(dataUrl);
-  const blob     = await blobRes.blob();
+  const blob     = dataUrlToBlob(dataUrl, file.mime);
   const objUrl   = URL.createObjectURL(blob);
   _orgObjectUrls.push(objUrl);
 
-  const isImg = (file.mime||'').startsWith('image/');
-  const isPdf = (file.mime||'')==='application/pdf' || /\.pdf$/i.test(file.name);
+  const isImg  = (file.mime||'').startsWith('image/');
+  const isPdf  = (file.mime||'')==='application/pdf' || /\.pdf$/i.test(file.name);
+  const isDocx = isDocxFile(file.mime, file.name);
+  const isDoc  = isDocFile(file.mime, file.name);
 
   let preview = '';
   if (isImg) {
@@ -1240,12 +1276,17 @@ async function renderOrgFileDetail(c) {
     const extLabel = (file.name.split('.').pop()||'').toUpperCase() || (isPdf ? 'PDF' : 'FILE');
     const hint = isPdf
       ? 'Tap OPEN or SHARE FILE to view in your PDF reader.'
-      : 'No preview available — tap OPEN or SHARE FILE to view in another app.';
+      : isDocx
+        ? 'Word documents can\'t be rendered natively in a browser — tap PREVIEW for a readable text approximation, or LAUNCH to open in Word/LibreOffice.'
+        : isDoc
+          ? 'Old .doc format isn\'t supported for in-app preview — tap LAUNCH to open in Word/LibreOffice.'
+          : 'No preview available — tap OPEN or SHARE FILE to view in another app.';
     preview = `
       <div class="dh-preview__icon ${isPdf?'dh-preview__icon--pdf':''}">
         <div class="dh-preview__sheet"></div>
         <div class="dh-preview__ext">${esc(extLabel)}</div>
         <div class="dh-preview__hint">${hint}</div>
+        ${isDocx ? `<button class="btn btn--primary" id="org-docx-preview" style="margin-top:10px;">📖 PREVIEW CONTENT</button>` : ''}
       </div>`;
   }
 
@@ -1264,7 +1305,9 @@ async function renderOrgFileDetail(c) {
 
     <div class="dh-detail-actions">
       <a class="btn" id="org-dl" href="${objUrl}" download="${esc(file.name)}">DOWNLOAD</a>
-      <a class="btn" id="org-open" href="${objUrl}" target="_blank" rel="noopener">OPEN</a>
+      ${isDoc
+        ? `<button class="btn" id="org-launch">LAUNCH</button>`
+        : `<a class="btn" id="org-open" href="${objUrl}" target="_blank" rel="noopener">OPEN</a>`}
       <button class="btn vault-actions__del" id="org-del">DELETE</button>
     </div>
 
@@ -1288,7 +1331,12 @@ async function renderOrgFileDetail(c) {
 
   c.querySelector('#org-back-file').onclick = () => { _orgViewing = null; orgRevokeUrls(); renderMain(); };
   c.querySelector('#org-dl').addEventListener('click', () => toast('✓ Saved to Downloads'));
-  c.querySelector('#org-open').addEventListener('click', () => toast('Opening…'));
+  const openBtn = c.querySelector('#org-open');
+  if (openBtn) openBtn.addEventListener('click', () => toast('Opening…'));
+  const launchBtn = c.querySelector('#org-launch');
+  if (launchBtn) launchBtn.onclick = () => launchFileBlob(file.id, file.name, file.mime);
+  const docxPreviewBtn = c.querySelector('#org-docx-preview');
+  if (docxPreviewBtn) docxPreviewBtn.onclick = () => openDocxPreview(file.id, file.name, file.mime);
   c.querySelector('#org-del').onclick = async () => {
     if (!confirm(`Delete "${file.name}"? This cannot be undone.`)) return;
     await orgDeleteFile(_orgCategory, file.id);
@@ -1650,6 +1698,7 @@ function fileSection(files=[], label='Attachments (any file type, any size)') {
             <span class="cd-file-item__name">${esc(f.name)}</span>
             <span class="cd-file-item__size">${fileSizeStr(f.size)}</span>
             ${canView(f.mime, f.name) ? `<button type="button" class="vault-tool-btn file-view-btn" data-fid="${f.id}" title="View">👁</button>` : ''}
+            ${isDocxFile(f.mime, f.name) ? `<button type="button" class="vault-tool-btn file-docxview-btn" data-fid="${f.id}" title="Preview content">📖 PREVIEW</button>` : ''}
             ${isDocFile(f.mime, f.name) ? `<button type="button" class="vault-tool-btn file-launch-btn" data-fid="${f.id}" title="Launch externally">🚀 LAUNCH</button>` : ''}
             <button type="button" class="vault-tool-btn file-dl-btn" data-fid="${f.id}" title="Download">⬇</button>
             <button type="button" class="vault-tool-btn file-del-btn" data-fid="${f.id}" title="Remove">×</button>
@@ -1701,6 +1750,7 @@ function wireFilePicker(container, entry) {
         <span class="cd-file-item__name">${esc(f.name)}</span>
         <span class="cd-file-item__size">${fileSizeStr(f.size)}</span>
         ${canView(f.mime, f.name) ? `<button type="button" class="vault-tool-btn file-view-btn" data-fid="${f.id}" title="View">👁</button>` : ''}
+        ${isDocxFile(f.mime, f.name) ? `<button type="button" class="vault-tool-btn file-docxview-btn" data-fid="${f.id}" title="Preview content">📖 PREVIEW</button>` : ''}
         ${isDocFile(f.mime, f.name) ? `<button type="button" class="vault-tool-btn file-launch-btn" data-fid="${f.id}" title="Launch externally">🚀 LAUNCH</button>` : ''}
         <button type="button" class="vault-tool-btn file-dl-btn" data-fid="${f.id}" title="Download">⬇</button>
         <button type="button" class="vault-tool-btn file-del-btn" data-fid="${f.id}" title="Remove">×</button>
@@ -1750,6 +1800,13 @@ function wireFileActions(container, entry, refresh) {
       const startIndex = viewableFiles.findIndex(x => x.id === btn.dataset.fid);
       if (startIndex === -1) return;
       await openFileViewerGallery(viewableFiles, startIndex);
+    };
+  });
+  container.querySelectorAll('.file-docxview-btn').forEach(btn => {
+    btn.onclick = async () => {
+      const f = (entry.files||[]).find(x=>x.id===btn.dataset.fid);
+      if (!f) return;
+      await openDocxPreview(f.id, f.name, f.mime);
     };
   });
   container.querySelectorAll('.file-launch-btn').forEach(btn => {
@@ -2139,8 +2196,7 @@ function isDocFile(mime, name) {
 async function launchFileBlob(fileId, name, mime) {
   try {
     const dataUrl = await loadFileBlob(fileId);
-    const res = await fetch(dataUrl);
-    const blob = await res.blob();
+    const blob = dataUrlToBlob(dataUrl, mime);
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.target = '_blank'; a.rel = 'noopener'; a.download = name;
@@ -2148,6 +2204,90 @@ async function launchFileBlob(fileId, name, mime) {
     setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 2000);
     toast(`Launching ${name} — opens with your device's default app if available, or downloads`, 'ok');
   } catch(err) { toast('Could not launch file: ' + err.message, 'err'); }
+}
+
+/* ============================================================
+   In-app DOCX text preview (mammoth.js)
+   ------------------------------------------------------------
+   Browsers have no built-in way to render .docx content — unlike
+   PDF/images there's no native viewer. mammoth.js parses the
+   .docx XML entirely offline and converts it to basic HTML
+   (paragraphs, bold/italic, headings, simple tables). It is a
+   READABLE APPROXIMATION, not a pixel-perfect copy: complex
+   layout, headers/footers, text boxes, and design won't carry
+   over. .doc (old binary format, pre-2007) is NOT supported by
+   this approach — only .docx. mammoth loads as a classic script
+   (not an ES module) and attaches itself to window.mammoth.
+   ============================================================ */
+let _mammothLoading = null;
+function ensureMammoth() {
+  if (window.mammoth) return Promise.resolve(window.mammoth);
+  if (_mammothLoading) return _mammothLoading;
+  _mammothLoading = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = './vendor/mammoth.browser.min.js';
+    script.onload = () => window.mammoth ? resolve(window.mammoth) : reject(new Error('mammoth failed to initialize'));
+    script.onerror = () => reject(new Error('Could not load DOCX preview library'));
+    document.head.appendChild(script);
+  });
+  return _mammothLoading;
+}
+
+function isDocxFile(mime, name) {
+  const m = (mime||'').toLowerCase();
+  const n = (name||'').toLowerCase();
+  return n.endsWith('.docx') || m === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+}
+
+async function openDocxPreview(fileId, name, mime) {
+  if (!isDocxFile(mime, name)) {
+    toast('In-app preview only supports .docx files (not old .doc format) — use LAUNCH to open this file instead', 'warn');
+    return;
+  }
+  const existing = document.getElementById('cd-docx-viewer');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'cd-docx-viewer';
+  overlay.className = 'cd-viewer-overlay';
+  overlay.innerHTML = `
+    <div class="cd-viewer-box">
+      <div class="cd-viewer-toolbar">
+        <span class="cd-viewer-name">${esc(name)}</span>
+        <button class="vault-tool-btn" id="cd-docx-launch">🚀 Launch / Download</button>
+        <button class="vault-tool-btn cd-viewer-close" id="cd-docx-close">✕ Close</button>
+      </div>
+      <div class="cd-viewer-body cd-docx-body" id="cd-docx-body">
+        <div class="pdfk-note">Loading preview…</div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', keyHandler); };
+  const keyHandler = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', keyHandler);
+  overlay.querySelector('#cd-docx-close').onclick = close;
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  overlay.querySelector('#cd-docx-launch').onclick = () => launchFileBlob(fileId, name, mime);
+
+  const bodyEl = overlay.querySelector('#cd-docx-body');
+  try {
+    const mammoth = await ensureMammoth();
+    const dataUrl = await loadFileBlob(fileId);
+    const arrayBuffer = dataUrlToArrayBuffer(dataUrl);
+    const result = await mammoth.convertToHtml({ arrayBuffer });
+    bodyEl.innerHTML = `
+      <div class="cd-docx-doc">${result.value}</div>
+      ${result.messages && result.messages.length ? `<div class="cd-docx-note">Note: some formatting may not be shown exactly as in the original.</div>` : ''}
+    `;
+  } catch(err) {
+    bodyEl.innerHTML = `
+      <div class="cd-viewer-unsupported">
+        Couldn't generate a preview for this file.<br>
+        ${esc(err.message)}<br><br>
+        Use Launch / Download above to open it in Word or LibreOffice instead.
+      </div>`;
+  }
 }
 
 /* Opens the file viewer for a SET of files (e.g. all photos attached to
