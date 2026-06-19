@@ -349,6 +349,7 @@ const TABS = [
   { id:'companies', label:'🏢 Companies' },
   { id:'idproof',   label:'🪪 ID Proof'  },
   { id:'dossier',   label:'🗂 Dossier'   },
+  { id:'organizer', label:'🗃 Doc Organizer' },
 ];
 
 /* ============================================================
@@ -434,7 +435,11 @@ function renderMain() {
     </div>
   `;
   _root.querySelectorAll('.cd-tab').forEach(btn => {
-    btn.onclick = () => { _tab = btn.dataset.tab; renderMain(); };
+    btn.onclick = () => {
+      _tab = btn.dataset.tab;
+      if (_tab !== 'organizer') { _orgCategory = null; _orgViewing = null; orgRevokeUrls(); }
+      renderMain();
+    };
   });
   _root.querySelector('#lock-btn').onclick   = () => { lock(); routeView(); };
   _root.querySelector('#export-btn').onclick  = exportData;
@@ -473,6 +478,7 @@ function renderTab(container) {
     case 'companies': return renderCompanies(container);
     case 'idproof':   return renderIdProof(container);
     case 'dossier':   return renderDossier(container);
+    case 'organizer': return renderOrganizer(container);
   }
 }
 
@@ -1076,6 +1082,293 @@ function dossierRowHtml(e) {
       </div>
     </div>
   `;
+}
+
+/* ============================================================
+   TAB 9 — Doc Organizer
+   ------------------------------------------------------------
+   Read-only file browser across every section (Work, Education,
+   Certs, Photos, Resume, Companies, ID Proof, Dossier). Three
+   levels: category grid → flat file list for that category →
+   file detail screen with DOWNLOAD / OPEN / DELETE and a SHARE
+   row using the Web Share API (navigator.share), which is the
+   reliable cross-device way to hand a file to Android's native
+   share sheet — the same pattern Document Hub already uses,
+   since blob-URL "open in new tab" alone is unreliable on mobile.
+   Editing entries is NOT done here — purely browse/open/share/
+   delete the file itself.
+   ============================================================ */
+let _orgCategory = null; // null = category grid; else one of the section ids
+let _orgViewing  = null; // { section, entryId, fileId } when viewing one file
+let _orgObjectUrls = [];
+
+const ORG_CATEGORIES = [
+  { id:'work',      label:'💼 Work Experience' },
+  { id:'edu',        label:'🎓 Education'        },
+  { id:'certs',      label:'📜 Certificates'     },
+  { id:'photos',     label:'📷 Photos'           },
+  { id:'resume',     label:'📄 Resume'           },
+  { id:'companies',  label:'🏢 Companies'        },
+  { id:'idproof',    label:'🪪 ID Proof'         },
+  { id:'dossier',    label:'🗂 Dossier'          },
+];
+
+function orgRevokeUrls() {
+  _orgObjectUrls.forEach(u => { try { URL.revokeObjectURL(u); } catch(e){} });
+  _orgObjectUrls = [];
+}
+
+/* Flattens every file in a category into one list, each carrying
+   a label describing which entry it belongs to (so files aren't
+   anonymous once pulled out of their original card). */
+function orgFlattenFiles(section) {
+  const out = [];
+  if (section === 'photos') {
+    _data.photos.forEach(p => out.push({ id:p.id, name:p.name, mime:p.mime, size:p.size, addedAt:p.addedAt, entryLabel: p.primary ? 'Primary photo' : 'Photo version' }));
+  } else if (section === 'resume') {
+    _data.resume.forEach(r => out.push({ id:r.id, name:r.name, mime:r.mime, size:r.size, addedAt:r.addedAt, entryLabel: r.active ? 'Active resume' : 'Resume version' }));
+  } else {
+    const labelFor = (section, e) => {
+      if (section==='work')      return `${e.jobTitle||'Untitled'} @ ${e.company||'—'}`;
+      if (section==='edu')       return `${e.level||'Education'} — ${e.degree||''}`.trim();
+      if (section==='certs')     return e.name || 'Certificate';
+      if (section==='companies') return e.company || 'Company';
+      if (section==='idproof')   return e.idName || 'ID Proof';
+      if (section==='dossier')   return e.docName || 'Document';
+      return 'Entry';
+    };
+    (_data[section]||[]).forEach(e => {
+      (e.files||[]).forEach(f => out.push({
+        id:f.id, name:f.name, mime:f.mime, size:f.size, addedAt:f.addedAt,
+        entryLabel: labelFor(section, e),
+      }));
+    });
+  }
+  return out.sort((a,b) => (b.addedAt||0) - (a.addedAt||0));
+}
+
+function renderOrganizer(c) {
+  orgRevokeUrls();
+  if (_orgViewing) return renderOrgFileDetail(c);
+  if (_orgCategory) return renderOrgFileList(c);
+  return renderOrgCategoryGrid(c);
+}
+
+function renderOrgCategoryGrid(c) {
+  const counts = {};
+  ORG_CATEGORIES.forEach(cat => { counts[cat.id] = orgFlattenFiles(cat.id).length; });
+  const totalFiles = Object.values(counts).reduce((a,b)=>a+b, 0);
+
+  c.innerHTML = `
+    <div class="pdfk-sub" style="margin-bottom:10px;">Browse every file across Career Details in one place — ${totalFiles} file(s) total.</div>
+    <div class="org-cat-grid">
+      ${ORG_CATEGORIES.map(cat => `
+        <button class="org-cat-card" data-cat="${cat.id}">
+          <div class="org-cat-label">${cat.label}</div>
+          <div class="org-cat-count">${counts[cat.id]} file(s)</div>
+        </button>
+      `).join('')}
+    </div>
+  `;
+  c.querySelectorAll('.org-cat-card').forEach(btn => {
+    btn.onclick = () => { _orgCategory = btn.dataset.cat; renderMain(); };
+  });
+}
+
+function renderOrgFileList(c) {
+  const cat = ORG_CATEGORIES.find(x => x.id === _orgCategory);
+  const files = orgFlattenFiles(_orgCategory);
+  c.innerHTML = `
+    <button class="vault-crumb" id="org-back-cat">← DOC ORGANIZER</button>
+    <h2 class="pdfk-h2" style="margin-bottom:10px;">${cat ? cat.label : ''}</h2>
+    <div class="cd-list">
+      ${files.length===0
+        ? `<div class="cd-empty">No files in this category yet.</div>`
+        : files.map(f => `
+          <div class="cd-row org-file-row" data-id="${f.id}">
+            <div class="cd-row__main">
+              <div class="cd-row__title">${orgFileIcon(f)} ${esc(f.name)}</div>
+              <div class="cd-row__meta">${esc(f.entryLabel)}</div>
+              <div class="cd-row__meta">${formatDate(f.addedAt)} · ${fileSizeStr(f.size)}</div>
+            </div>
+            <div class="cd-row__actions">
+              <button class="vault-tool-btn org-open-btn" data-id="${f.id}">OPEN</button>
+            </div>
+          </div>
+        `).join('')}
+    </div>
+  `;
+  c.querySelector('#org-back-cat').onclick = () => { _orgCategory = null; renderMain(); };
+  c.querySelectorAll('.org-open-btn, .org-file-row').forEach(el => {
+    el.onclick = (e) => {
+      e.stopPropagation();
+      const id = el.dataset.id || el.closest('.org-file-row')?.dataset.id;
+      if (id) { _orgViewing = id; renderMain(); }
+    };
+  });
+}
+
+function orgFileIcon(f) {
+  if (canView(f.mime, f.name) && (f.mime||'').startsWith('image/')) return '🖼';
+  if ((f.mime||'')==='application/pdf' || /\.pdf$/i.test(f.name)) return '📕';
+  if (isDocFile(f.mime, f.name)) return '📝';
+  return '📄';
+}
+
+async function renderOrgFileDetail(c) {
+  const files = orgFlattenFiles(_orgCategory);
+  const file = files.find(f => f.id === _orgViewing);
+  if (!file) { _orgViewing = null; return renderOrgFileList(c); }
+
+  c.innerHTML = `<div class="pdfk-note">Loading…</div>`;
+  let dataUrl;
+  try { dataUrl = await loadFileBlob(file.id); }
+  catch(err) { c.innerHTML = `<div class="cd-empty">Could not load this file: ${esc(err.message)}</div>`; return; }
+
+  const blobRes  = await fetch(dataUrl);
+  const blob     = await blobRes.blob();
+  const objUrl   = URL.createObjectURL(blob);
+  _orgObjectUrls.push(objUrl);
+
+  const isImg = (file.mime||'').startsWith('image/');
+  const isPdf = (file.mime||'')==='application/pdf' || /\.pdf$/i.test(file.name);
+
+  let preview = '';
+  if (isImg) {
+    preview = `<img class="dh-preview__img" src="${objUrl}" alt="">`;
+  } else {
+    const extLabel = (file.name.split('.').pop()||'').toUpperCase() || (isPdf ? 'PDF' : 'FILE');
+    const hint = isPdf
+      ? 'Tap OPEN or SHARE FILE to view in your PDF reader.'
+      : 'No preview available — tap OPEN or SHARE FILE to view in another app.';
+    preview = `
+      <div class="dh-preview__icon ${isPdf?'dh-preview__icon--pdf':''}">
+        <div class="dh-preview__sheet"></div>
+        <div class="dh-preview__ext">${esc(extLabel)}</div>
+        <div class="dh-preview__hint">${hint}</div>
+      </div>`;
+  }
+
+  c.innerHTML = `
+    <button class="vault-crumb" id="org-back-file">← ${esc(ORG_CATEGORIES.find(x=>x.id===_orgCategory)?.label || '')}</button>
+
+    <div class="dh-preview">${preview}</div>
+
+    <div class="dh-meta">
+      <div class="dh-meta__row"><span class="dh-meta__k">NAME</span><span class="dh-meta__v">${esc(file.name)}</span></div>
+      <div class="dh-meta__row"><span class="dh-meta__k">FROM</span><span class="dh-meta__v">${esc(file.entryLabel)}</span></div>
+      <div class="dh-meta__row"><span class="dh-meta__k">TYPE</span><span class="dh-meta__v">${esc(file.mime||'unknown')}</span></div>
+      <div class="dh-meta__row"><span class="dh-meta__k">SIZE</span><span class="dh-meta__v">${fileSizeStr(file.size)}</span></div>
+      <div class="dh-meta__row"><span class="dh-meta__k">ADDED</span><span class="dh-meta__v">${formatDate(file.addedAt)}</span></div>
+    </div>
+
+    <div class="dh-detail-actions">
+      <a class="btn" id="org-dl" href="${objUrl}" download="${esc(file.name)}">DOWNLOAD</a>
+      <a class="btn" id="org-open" href="${objUrl}" target="_blank" rel="noopener">OPEN</a>
+      <button class="btn vault-actions__del" id="org-del">DELETE</button>
+    </div>
+
+    <div class="dh-share">
+      <div class="dh-share__head">SEND OUT</div>
+      <button class="btn btn--primary dh-share__main" id="org-sh-native">📤&nbsp; SHARE FILE</button>
+      <div class="dh-share__row">
+        <button class="dh-share__btn" id="org-sh-wa" type="button"><span class="dh-share__icon">💬</span><span class="dh-share__lbl">WhatsApp</span></button>
+        <button class="dh-share__btn" id="org-sh-email" type="button"><span class="dh-share__icon">✉</span><span class="dh-share__lbl">Email</span></button>
+        <button class="dh-share__btn" id="org-sh-print" type="button"><span class="dh-share__icon">🖨</span><span class="dh-share__lbl">Print</span></button>
+        <button class="dh-share__btn" id="org-sh-copy" type="button"><span class="dh-share__icon">📋</span><span class="dh-share__lbl">Copy</span></button>
+      </div>
+      <div class="dh-share__hint">
+        SHARE FILE attaches the actual file via your device's native share sheet
+        (WhatsApp, Drive, Telegram, your PDF viewer, etc.) — this is the most
+        reliable way to open files on mobile. The 4 buttons below send a text
+        summary only; files don't attach via direct links.
+      </div>
+    </div>
+  `;
+
+  c.querySelector('#org-back-file').onclick = () => { _orgViewing = null; orgRevokeUrls(); renderMain(); };
+  c.querySelector('#org-dl').addEventListener('click', () => toast('✓ Saved to Downloads'));
+  c.querySelector('#org-open').addEventListener('click', () => toast('Opening…'));
+  c.querySelector('#org-del').onclick = async () => {
+    if (!confirm(`Delete "${file.name}"? This cannot be undone.`)) return;
+    await orgDeleteFile(_orgCategory, file.id);
+    _orgViewing = null;
+    orgRevokeUrls();
+    toast('✓ Deleted');
+    renderMain();
+  };
+
+  c.querySelector('#org-sh-native').onclick = () => orgShareNative(file, blob);
+  c.querySelector('#org-sh-wa').onclick     = () => orgShareWhatsApp(file);
+  c.querySelector('#org-sh-email').onclick  = () => orgShareEmail(file);
+  c.querySelector('#org-sh-print').onclick  = () => orgPrintFile(file, objUrl);
+  c.querySelector('#org-sh-copy').onclick   = () => orgCopyInfo(file);
+}
+
+/* Removes the file from wherever it actually lives in _data (photos,
+   resume, or an entry's files[] array within the given section), then
+   cleans up its IndexedDB blob and persists. */
+async function orgDeleteFile(section, fileId) {
+  await deleteFileBlob(fileId);
+  if (section === 'photos') {
+    _data.photos = _data.photos.filter(p => p.id !== fileId);
+  } else if (section === 'resume') {
+    _data.resume = _data.resume.filter(r => r.id !== fileId);
+  } else {
+    (_data[section]||[]).forEach(e => {
+      if (e.files) e.files = e.files.filter(f => f.id !== fileId);
+    });
+  }
+  await persist();
+}
+
+async function orgShareNative(file, blob) {
+  if (!navigator.share) { toast('Sharing not supported on this browser', 'warn'); return; }
+  const fileObj = new File([blob], file.name, { type: file.mime || 'application/octet-stream' });
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [fileObj] })) {
+      await navigator.share({ title: file.name, text: file.name, files: [fileObj] });
+      toast('✓ Shared');
+    } else {
+      await navigator.share({ title: file.name, text: `${file.name} · ${fileSizeStr(file.size)}` });
+      toast('Text shared (file attach not supported here)', 'warn');
+    }
+  } catch(err) {
+    if (err.name === 'AbortError') return;
+    toast('Share failed: ' + err.message, 'err');
+  }
+}
+function orgShareWhatsApp(file) {
+  const text = encodeURIComponent(`📄 ${file.name}\n${fileSizeStr(file.size)} · ${formatDate(file.addedAt)}\n\n(Use SHARE FILE button to attach the actual file.)`);
+  window.open(`https://wa.me/?text=${text}`, '_blank');
+}
+function orgShareEmail(file) {
+  const subject = encodeURIComponent(`File: ${file.name}`);
+  const body = encodeURIComponent(`${file.name}\nSize: ${fileSizeStr(file.size)}\nType: ${file.mime}\nAdded: ${formatDate(file.addedAt)}\n\n(Use SHARE FILE to attach the actual file.)`);
+  window.location.href = `mailto:?subject=${subject}&body=${body}`;
+}
+function orgPrintFile(file, url) {
+  if ((file.mime||'').startsWith('image/')) {
+    const w = window.open('', '_blank');
+    if (!w) { toast('Popup blocked — allow popups to print', 'warn'); return; }
+    w.document.write(
+      '<!doctype html><html><head>' + `<title>${esc(file.name)}</title>` +
+      '<style>body{margin:0;padding:0;background:#fff;}img{display:block;max-width:100%;height:auto;margin:0 auto;}@media print{@page{margin:1cm;}}</style>' +
+      `</head><body><img src="${url}" onload="setTimeout(function(){window.print();},150)"></body></html>`
+    );
+    w.document.close();
+  } else if ((file.mime||'')==='application/pdf') {
+    const w = window.open(url, '_blank');
+    if (!w) { toast('Popup blocked — open then print manually', 'warn'); return; }
+    setTimeout(() => { try { w.print(); } catch(e){} }, 1500);
+  } else {
+    toast('Print not available for this file type', 'warn');
+  }
+}
+async function orgCopyInfo(file) {
+  const text = `${file.name}\nSize: ${fileSizeStr(file.size)}\nType: ${file.mime}\nAdded: ${formatDate(file.addedAt)}`;
+  try { await navigator.clipboard.writeText(text); toast('✓ Info copied'); }
+  catch(e) { toast('Copy failed — clipboard blocked', 'err'); }
 }
 
 /* ============================================================
