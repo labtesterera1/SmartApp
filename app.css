@@ -3757,3 +3757,117 @@ a { color: var(--lime); text-decoration: none; }
   border-color: var(--lime-dim);
 }
 .cd-row-view:hover { color: var(--lime); border-color: var(--lime); }
+
+/* ============================================================
+   PDF Toolkit module styles
+   ============================================================ */
+.pdfk-wrap { display: flex; flex-direction: column; gap: 14px; }
+
+.pdfk-tool-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+}
+.pdfk-tool-card {
+  background: var(--bg-tile);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 20px 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 6px;
+  transition: border-color 0.15s, transform 0.1s;
+}
+.pdfk-tool-card:hover { border-color: var(--lime-dim); transform: translateY(-1px); }
+.pdfk-tool-icon { font-size: 28px; }
+.pdfk-tool-name { font-weight: 600; font-size: 14px; color: var(--ink); }
+.pdfk-tool-desc { font-size: 10px; color: var(--ink-dim); line-height: 1.5; }
+
+.pdfk-note {
+  font-size: 11px;
+  color: var(--ink-faint);
+  text-align: center;
+  padding: 10px;
+}
+
+.pdfk-h2 {
+  font-family: var(--serif);
+  font-size: 22px;
+  color: var(--lime);
+  margin: 4px 0 0;
+}
+.pdfk-sub { font-size: 12px; color: var(--ink-dim); margin-bottom: 4px; }
+
+.pdfk-drop-zone {
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  padding: 28px 16px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  transition: border-color 0.15s, background 0.15s;
+}
+.pdfk-drop-zone.is-dragover { border-color: var(--lime-dim); background: rgba(212,255,58,0.04); }
+.pdfk-drop-icon { font-size: 32px; opacity: 0.6; }
+.pdfk-drop-label { font-size: 12px; color: var(--ink-dim); }
+
+.pdfk-file-list { display: flex; flex-direction: column; gap: 8px; }
+.pdfk-file-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-tile);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+}
+.pdfk-file-icon { font-size: 14px; flex-shrink: 0; }
+.pdfk-file-name { flex: 1; font-size: 12px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pdfk-file-size { font-size: 10px; color: var(--ink-dim); flex-shrink: 0; }
+
+.pdfk-action-btn { width: 100%; margin-top: 4px; }
+.pdfk-or { text-align: center; font-size: 10px; color: var(--ink-faint); margin: 6px 0; }
+
+.pdfk-split-options, .pdfk-reduce-options { display: flex; flex-direction: column; gap: 10px; margin-top: 6px; }
+
+.pdfk-page-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 10px;
+  margin: 10px 0;
+}
+.pdfk-page-card {
+  background: var(--bg-tile);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.pdfk-page-num { font-size: 10px; color: var(--ink-dim); }
+.pdfk-page-rot { font-size: 28px; transition: transform 0.2s; }
+.pdfk-page-actions { display: flex; gap: 4px; flex-wrap: wrap; justify-content: center; }
+
+.pdfk-progress {
+  font-size: 11px;
+  color: var(--ink-dim);
+  font-family: var(--mono);
+  padding: 8px;
+  background: var(--bg-soft);
+  border-radius: var(--radius);
+}
+
+.pdf-toolkit-link {
+  width: 100%;
+  text-align: center;
+  color: var(--lime-dim);
+  border-color: var(--lime-dim);
+  margin-bottom: 4px;
+}
+.pdf-toolkit-link:hover { color: var(--lime); border-color: var(--lime); }

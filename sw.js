@@ -7,7 +7,7 @@
 
    To force users to pick up new code: bump CACHE_NAME below.
    ============================================================ */
-const CACHE_NAME = 'smartapp-shell-v0.76';
+const CACHE_NAME = 'smartapp-shell-v0.77';
 const SHELL = [
   './',
   './index.html',
@@ -26,6 +26,9 @@ const SHELL = [
   './core/speech.js',
   './vendor/jszip.min.js',
   './vendor/jspdf.umd.min.js',
+  './vendor/pdf-lib.esm.min.js',
+  './vendor/pdf.min.mjs',
+  './vendor/pdf.worker.min.mjs',
   './modules/ledger.js',
   './modules/documents.js',
   './modules/sweep.js',
@@ -33,6 +36,7 @@ const SHELL = [
   './modules/reader.js',
   './modules/capture.js',
   './modules/careerdetails.js',
+  './modules/pdftoolkit.js',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/icon-192-maskable.png',
