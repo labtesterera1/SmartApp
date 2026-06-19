@@ -3889,3 +3889,27 @@ a { color: var(--lime); text-decoration: none; }
   border-color: var(--lime-dim);
 }
 .file-launch-btn:hover, .resume-launch-btn:hover { color: var(--lime); border-color: var(--lime); }
+
+/* Career Details — Doc Organizer */
+.org-cat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px;
+}
+.org-cat-card {
+  background: var(--bg-tile);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 18px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+  transition: border-color 0.15s, transform 0.1s;
+}
+.org-cat-card:hover { border-color: var(--lime-dim); transform: translateY(-1px); }
+.org-cat-label { font-size: 13px; font-weight: 600; color: var(--ink); }
+.org-cat-count { font-size: 11px; color: var(--ink-dim); }
+
+.org-file-row { cursor: pointer; }
+.org-file-row:hover { border-color: var(--lime-dim); }
