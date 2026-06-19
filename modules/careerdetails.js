@@ -812,6 +812,13 @@ function renderResume(c) {
       await openFileViewerGallery(viewable, startIndex);
     };
   });
+  c.querySelectorAll('.resume-launch-btn').forEach(btn => {
+    btn.onclick = async () => {
+      const r = _data.resume.find(x=>x.id===btn.dataset.id);
+      if (!r) return;
+      await launchFileBlob(r.id, r.name, r.mime);
+    };
+  });
 }
 
 function resumeRowHtml(r, i) {
@@ -826,6 +833,7 @@ function resumeRowHtml(r, i) {
       <div class="cd-row__actions">
         ${!r.active ? `<button class="vault-tool-btn resume-active-btn" data-id="${r.id}">SET ACTIVE</button>` : ''}
         ${canView(r.mime, r.name) ? `<button class="vault-tool-btn resume-view-btn" data-id="${r.id}">👁 VIEW</button>` : ''}
+        ${isDocFile(r.mime, r.name) ? `<button class="vault-tool-btn resume-launch-btn" data-id="${r.id}">🚀 LAUNCH</button>` : ''}
         <button class="vault-tool-btn resume-dl-btn" data-id="${r.id}">⬇ DL</button>
         <button class="vault-tool-btn resume-del-btn" data-id="${r.id}">DEL</button>
       </div>
@@ -1307,6 +1315,7 @@ function fileSection(files=[], label='Attachments (any file type, any size)') {
             <span class="cd-file-item__name">${esc(f.name)}</span>
             <span class="cd-file-item__size">${fileSizeStr(f.size)}</span>
             ${canView(f.mime, f.name) ? `<button type="button" class="vault-tool-btn file-view-btn" data-fid="${f.id}" title="View">👁</button>` : ''}
+            ${isDocFile(f.mime, f.name) ? `<button type="button" class="vault-tool-btn file-launch-btn" data-fid="${f.id}" title="Launch externally">🚀 LAUNCH</button>` : ''}
             <button type="button" class="vault-tool-btn file-dl-btn" data-fid="${f.id}" title="Download">⬇</button>
             <button type="button" class="vault-tool-btn file-del-btn" data-fid="${f.id}" title="Remove">×</button>
           </div>
@@ -1357,6 +1366,7 @@ function wireFilePicker(container, entry) {
         <span class="cd-file-item__name">${esc(f.name)}</span>
         <span class="cd-file-item__size">${fileSizeStr(f.size)}</span>
         ${canView(f.mime, f.name) ? `<button type="button" class="vault-tool-btn file-view-btn" data-fid="${f.id}" title="View">👁</button>` : ''}
+        ${isDocFile(f.mime, f.name) ? `<button type="button" class="vault-tool-btn file-launch-btn" data-fid="${f.id}" title="Launch externally">🚀 LAUNCH</button>` : ''}
         <button type="button" class="vault-tool-btn file-dl-btn" data-fid="${f.id}" title="Download">⬇</button>
         <button type="button" class="vault-tool-btn file-del-btn" data-fid="${f.id}" title="Remove">×</button>
       </div>
@@ -1405,6 +1415,13 @@ function wireFileActions(container, entry, refresh) {
       const startIndex = viewableFiles.findIndex(x => x.id === btn.dataset.fid);
       if (startIndex === -1) return;
       await openFileViewerGallery(viewableFiles, startIndex);
+    };
+  });
+  container.querySelectorAll('.file-launch-btn').forEach(btn => {
+    btn.onclick = async () => {
+      const f = (entry.files||[]).find(x=>x.id===btn.dataset.fid);
+      if (!f) return;
+      await launchFileBlob(f.id, f.name, f.mime);
     };
   });
   container.querySelectorAll('.file-dl-btn').forEach(btn => {
@@ -1763,6 +1780,30 @@ function canView(mime, name) {
       || n.endsWith('.jpg') || n.endsWith('.jpeg')
       || n.endsWith('.png') || n.endsWith('.gif')
       || n.endsWith('.webp') || n.endsWith('.pdf');
+}
+
+/* DOC/DOCX files can't be previewed inline in a browser. LAUNCH opens
+   (or, if the browser can't open it inline, downloads) the raw file
+   so the device's own Word/LibreOffice/viewer app can handle it
+   locally — the file never leaves the device either way. */
+function isDocFile(mime, name) {
+  const m = (mime||'').toLowerCase();
+  const n = (name||'').toLowerCase();
+  return m.includes('word') || n.endsWith('.doc') || n.endsWith('.docx');
+}
+
+async function launchFileBlob(fileId, name, mime) {
+  try {
+    const dataUrl = await loadFileBlob(fileId);
+    const res = await fetch(dataUrl);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.target = '_blank'; a.rel = 'noopener'; a.download = name;
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 2000);
+    toast(`Launching ${name} — opens with your device's default app if available, or downloads`, 'ok');
+  } catch(err) { toast('Could not launch file: ' + err.message, 'err'); }
 }
 
 /* Opens the file viewer for a SET of files (e.g. all photos attached to

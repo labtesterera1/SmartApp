@@ -63,6 +63,7 @@ function renderScreen() {
     case 'split':    return renderSplit();
     case 'edit':     return renderEdit();
     case 'reduce':   return renderReduce();
+    case 'unlock':   return renderUnlock();
     default:         return renderHome();
   }
 }
@@ -100,6 +101,11 @@ function renderHome() {
           <div class="pdfk-tool-icon">📉</div>
           <div class="pdfk-tool-name">Reduce Size</div>
           <div class="pdfk-tool-desc">Shrink file size, adjustable quality</div>
+        </button>
+        <button class="pdfk-tool-card" data-tool="unlock">
+          <div class="pdfk-tool-icon">🔓</div>
+          <div class="pdfk-tool-name">Unlock</div>
+          <div class="pdfk-tool-desc">Remove password protection<br>(if you know the password)</div>
         </button>
       </div>
       <div class="pdfk-note">All processing happens on this device. Nothing is uploaded anywhere.</div>
@@ -615,6 +621,129 @@ async function runReduce() {
   } catch(e) {
     progressEl.textContent = '';
     toast('Reduce failed: ' + e.message, 'err');
+  }
+}
+
+/* ============================================================
+   TOOL 6 — Unlock (remove password protection)
+   ------------------------------------------------------------
+   HONEST LIMITATION: there is no offline JS library available
+   here that can decrypt a PDF and rewrite it while keeping the
+   original text layer intact. The only reliable, safe approach
+   with the libraries on hand is the same one used by Reduce
+   Size: pdf.js decrypts the PDF (it has to, just to display it)
+   and renders each page to a canvas; pdf-lib then reassembles
+   those canvases into a brand-new, password-free PDF.
+   Result: the unlocked PDF will NOT have selectable/searchable
+   text — pages become images, like a scan. Visually identical,
+   but text can't be copied or searched anymore. This is shown
+   to the user clearly before every unlock, not just once.
+   ============================================================ */
+let _unlockFile = null;
+
+function renderUnlock() {
+  _unlockFile = null;
+  _root.innerHTML = `
+    <div class="pdfk-wrap">
+      ${backBtn()}
+      <h2 class="pdfk-h2">Unlock PDF</h2>
+      <div class="pdfk-sub">Remove password protection from a PDF you already know the password for.</div>
+      <div class="pdfk-warn-box">
+        ⚠ <strong>Important:</strong> the unlocked copy will have its pages converted to images.
+        Text will no longer be selectable, searchable, or copyable — even though it will look identical.
+        This applies every time you use this tool, for any PDF.
+      </div>
+      ${pickerZone({ id:'unlock-input', label:'Drop a password-protected PDF here', accept:'.pdf,application/pdf', multiple:false })}
+      <div id="unlock-body"></div>
+    </div>
+  `;
+  wireBack(_root);
+  wirePickerZone(_root, 'unlock-input', (files) => {
+    const file = files[0];
+    if (!file || !(/\.pdf$/i.test(file.name) || file.type==='application/pdf')) { toast('Please select a PDF file','warn'); return; }
+    _unlockFile = file;
+    renderUnlockBody();
+  });
+}
+
+function renderUnlockBody() {
+  const body = _root.querySelector('#unlock-body');
+  body.innerHTML = `
+    <div class="pdfk-file-row">
+      <span class="pdfk-file-icon">🔒</span>
+      <span class="pdfk-file-name">${esc(_unlockFile.name)}</span>
+      <span class="pdfk-file-size">${fileSizeStr(_unlockFile.size)}</span>
+    </div>
+    <label class="vault-field">
+      <span class="vault-field__label">PDF Password</span>
+      <div class="vault-pwrow">
+        <input type="password" id="unlock-pw" class="cd-input" placeholder="Enter the PDF's password" autocomplete="off">
+        <button type="button" class="vault-pwrow__btn" id="unlock-pw-reveal">👁</button>
+      </div>
+    </label>
+    <button class="btn btn--primary pdfk-action-btn" id="unlock-go">🔓 UNLOCK PDF</button>
+    <div class="pdfk-progress" id="unlock-progress" hidden></div>
+  `;
+  const pwInput = body.querySelector('#unlock-pw');
+  body.querySelector('#unlock-pw-reveal').onclick = () => {
+    pwInput.type = pwInput.type==='password' ? 'text' : 'password';
+  };
+  body.querySelector('#unlock-go').onclick = runUnlock;
+  pwInput.addEventListener('keydown', e => { if (e.key==='Enter') runUnlock(); });
+}
+
+async function runUnlock() {
+  const pwInput = _root.querySelector('#unlock-pw');
+  const password = pwInput.value;
+  if (!password) return toast('Enter the PDF password', 'warn');
+  const progressEl = _root.querySelector('#unlock-progress');
+  progressEl.hidden = false;
+  progressEl.textContent = 'Opening PDF…';
+  try {
+    const pdfjs = await ensurePdfJs();
+    const { PDFDocument } = await ensurePDFLib();
+    const bytes = await _unlockFile.arrayBuffer();
+
+    let pdf;
+    try {
+      pdf = await pdfjs.getDocument({ data: bytes, password }).promise;
+    } catch(err) {
+      if (err && err.name === 'PasswordException') {
+        progressEl.hidden = true;
+        pwInput.value = '';
+        toast('Incorrect password — please try again', 'err');
+        return;
+      }
+      throw err;
+    }
+
+    const out = await PDFDocument.create();
+    for (let i = 1; i <= pdf.numPages; i++) {
+      progressEl.textContent = `Decrypting & rendering page ${i} / ${pdf.numPages}…`;
+      const page = await pdf.getPage(i);
+      const viewport = page.getViewport({ scale: 1.5 });
+      const canvas = document.createElement('canvas');
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      const ctx = canvas.getContext('2d');
+      await page.render({ canvasContext: ctx, viewport }).promise;
+
+      const jpegDataUrl = canvas.toDataURL('image/jpeg', 0.85);
+      const jpegBytes = dataUrlToBytes(jpegDataUrl);
+      const img = await out.embedJpg(jpegBytes);
+      const pageOut = out.addPage([viewport.width, viewport.height]);
+      pageOut.drawImage(img, { x:0, y:0, width: viewport.width, height: viewport.height });
+    }
+
+    progressEl.textContent = 'Saving unlocked PDF…';
+    const pdfBytes = await out.save();
+    downloadBytes(pdfBytes, `unlocked-${ts()}.pdf`, 'application/pdf');
+    progressEl.textContent = `✓ Done — ${pdf.numPages} page(s) unlocked (saved as images, no longer password-protected)`;
+    pwInput.value = '';
+    toast('✓ PDF unlocked');
+  } catch(e) {
+    progressEl.textContent = '';
+    toast('Unlock failed: ' + e.message, 'err');
   }
 }
 
