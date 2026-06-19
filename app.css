@@ -3687,3 +3687,19 @@ a { color: var(--lime); text-decoration: none; }
   padding: 40px;
   line-height: 1.8;
 }
+
+/* Career Details — search bar row */
+.cd-search-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.cd-search-input { flex: 1; min-width: 160px; margin-top: 0; }
+.cd-search-count {
+  font-size: 10px;
+  color: var(--ink-faint);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
