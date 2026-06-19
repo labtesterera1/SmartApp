@@ -712,6 +712,13 @@ function renderPhotos(c) {
       catch(err) { toast('Download failed: '+err.message, 'err'); }
     };
   });
+  c.querySelectorAll('.photo-view-btn').forEach(btn => {
+    btn.onclick = async () => {
+      const startIndex = _data.photos.findIndex(x => x.id === btn.dataset.id);
+      if (startIndex === -1) return;
+      await openFileViewerGallery(_data.photos, startIndex);
+    };
+  });
   // Load each thumbnail asynchronously from IndexedDB
   _data.photos.forEach(p => {
     loadFileBlob(p.id).then(dataUrl => {
@@ -730,6 +737,7 @@ function photoCardHtml(p, i) {
       <div class="cd-photo-date">${formatDate(p.addedAt)}</div>
       <div class="cd-photo-actions">
         ${!p.primary ? `<button class="vault-tool-btn photo-primary-btn" data-id="${p.id}">SET PRIMARY</button>` : ''}
+        <button class="vault-tool-btn photo-view-btn" data-id="${p.id}">👁 VIEW</button>
         <button class="vault-tool-btn photo-dl-btn" data-id="${p.id}">⬇ DL</button>
         <button class="vault-tool-btn photo-del-btn" data-id="${p.id}">DEL</button>
       </div>
@@ -1381,10 +1389,10 @@ function wireFilePicker(container, entry) {
 function wireFileActions(container, entry, refresh) {
   container.querySelectorAll('.file-view-btn').forEach(btn => {
     btn.onclick = async () => {
-      const f = (entry.files||[]).find(x=>x.id===btn.dataset.fid);
-      if (!f) return;
-      try { openFileViewer(await loadFileBlob(f.id), f.name, f.mime); }
-      catch(err) { toast('Could not open file: '+err.message, 'err'); }
+      const viewableFiles = (entry.files||[]).filter(f => canView(f.mime, f.name));
+      const startIndex = viewableFiles.findIndex(x => x.id === btn.dataset.fid);
+      if (startIndex === -1) return;
+      await openFileViewerGallery(viewableFiles, startIndex);
     };
   });
   container.querySelectorAll('.file-dl-btn').forEach(btn => {
@@ -1681,21 +1689,24 @@ function uuid() {
    Only rendered when the entry has at least one previewable file
    (canView() already excludes ZIPs and other non-previewable types). */
 function rowViewBtn(entry) {
-  const viewable = (entry.files||[]).find(f => canView(f.mime, f.name));
-  if (!viewable) return '';
-  return `<button class="vault-tool-btn cd-row-view" data-id="${entry.id}" data-fid="${viewable.id}" title="View">👁 VIEW</button>`;
+  const viewableFiles = (entry.files||[]).filter(f => canView(f.mime, f.name));
+  if (!viewableFiles.length) return '';
+  const label = viewableFiles.length > 1 ? `👁 VIEW (${viewableFiles.length})` : '👁 VIEW';
+  return `<button class="vault-tool-btn cd-row-view" data-id="${entry.id}" title="View">${label}</button>`;
 }
 
 /* Wires every .cd-row-view button inside `container` for the given
-   in-memory `list` (e.g. _data.work, _data.dossier, …). */
+   in-memory `list` (e.g. _data.work, _data.dossier, …). Opens the
+   file viewer with ALL of that entry's viewable files loaded, so
+   Prev/Next navigation works when there's more than one. */
 function wireRowViewButtons(container, list) {
   container.querySelectorAll('.cd-row-view').forEach(btn => {
     btn.onclick = async () => {
       const entry = list.find(x => x.id === btn.dataset.id);
-      const file  = entry && (entry.files||[]).find(f => f.id === btn.dataset.fid);
-      if (!file) return;
-      try { openFileViewer(await loadFileBlob(file.id), file.name, file.mime); }
-      catch(err) { toast('Could not open file: ' + err.message, 'err'); }
+      if (!entry) return;
+      const viewableFiles = (entry.files||[]).filter(f => canView(f.mime, f.name));
+      if (!viewableFiles.length) return;
+      await openFileViewerGallery(viewableFiles, 0);
     };
   });
 }
@@ -1742,7 +1753,28 @@ function canView(mime, name) {
       || n.endsWith('.webp') || n.endsWith('.pdf');
 }
 
-function openFileViewer(dataUrl, name, mime) {
+/* Opens the file viewer for a SET of files (e.g. all photos attached to
+   one work-experience entry), with Prev/Next navigation between them.
+   `files` = [{id, name, mime}, …] (metadata only — bytes loaded on demand
+   per-file so we don't decrypt everything up front). `startIndex` = which
+   one to show first. */
+async function openFileViewerGallery(files, startIndex) {
+  let index = startIndex;
+  const showCurrent = async () => {
+    const f = files[index];
+    try {
+      const dataUrl = await loadFileBlob(f.id);
+      openFileViewer(dataUrl, f.name, f.mime, {
+        position: files.length > 1 ? `${index + 1} / ${files.length}` : null,
+        onPrev: files.length > 1 ? () => { index = (index - 1 + files.length) % files.length; showCurrent(); } : null,
+        onNext: files.length > 1 ? () => { index = (index + 1) % files.length; showCurrent(); } : null,
+      });
+    } catch(err) { toast('Could not open file: ' + err.message, 'err'); }
+  };
+  await showCurrent();
+}
+
+function openFileViewer(dataUrl, name, mime, nav = {}) {
   const existing = document.getElementById('cd-file-viewer');
   if (existing) existing.remove();
 
@@ -1756,23 +1788,31 @@ function openFileViewer(dataUrl, name, mime) {
     <div class="cd-viewer-box">
       <div class="cd-viewer-toolbar">
         <span class="cd-viewer-name">${esc(name)}</span>
+        ${nav.position ? `<span class="cd-viewer-position">${esc(nav.position)}</span>` : ''}
         <button class="vault-tool-btn" id="cd-viewer-dl">⬇ Download</button>
         <button class="vault-tool-btn cd-viewer-close" id="cd-viewer-close">✕ Close</button>
       </div>
       <div class="cd-viewer-body" id="cd-viewer-body">
+        ${nav.onPrev ? `<button class="cd-viewer-nav cd-viewer-nav--prev" id="cd-viewer-prev" title="Previous">‹</button>` : ''}
         ${isImg ? `<img src="${dataUrl}" class="cd-viewer-img" alt="${esc(name)}">` : ''}
         ${isPdf ? `<iframe src="${dataUrl}" class="cd-viewer-iframe" title="${esc(name)}"></iframe>` : ''}
         ${!isImg && !isPdf ? `<div class="cd-viewer-unsupported">Preview not available for this file type.<br>Use the Download button.</div>` : ''}
+        ${nav.onNext ? `<button class="cd-viewer-nav cd-viewer-nav--next" id="cd-viewer-next" title="Next">›</button>` : ''}
       </div>
     </div>
   `;
   document.body.appendChild(overlay);
   overlay.querySelector('#cd-viewer-dl').onclick    = () => downloadFile(dataUrl, name, mime);
-  overlay.querySelector('#cd-viewer-close').onclick = () => overlay.remove();
-  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
-  document.addEventListener('keydown', function esc(e) {
-    if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', esc); }
-  });
+  overlay.querySelector('#cd-viewer-close').onclick = () => { overlay.remove(); document.removeEventListener('keydown', keyHandler); };
+  overlay.addEventListener('click', e => { if (e.target === overlay) { overlay.remove(); document.removeEventListener('keydown', keyHandler); } });
+  if (nav.onPrev) overlay.querySelector('#cd-viewer-prev').onclick = () => { overlay.remove(); document.removeEventListener('keydown', keyHandler); nav.onPrev(); };
+  if (nav.onNext) overlay.querySelector('#cd-viewer-next').onclick = () => { overlay.remove(); document.removeEventListener('keydown', keyHandler); nav.onNext(); };
+  const keyHandler = (e) => {
+    if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', keyHandler); }
+    else if (e.key === 'ArrowLeft'  && nav.onPrev) { overlay.remove(); document.removeEventListener('keydown', keyHandler); nav.onPrev(); }
+    else if (e.key === 'ArrowRight' && nav.onNext) { overlay.remove(); document.removeEventListener('keydown', keyHandler); nav.onNext(); }
+  };
+  document.addEventListener('keydown', keyHandler);
 }
 
 function downloadFile(dataUrl, name, mime) {
