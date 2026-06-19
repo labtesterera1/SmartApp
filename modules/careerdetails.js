@@ -449,6 +449,7 @@ function renderWork(c) {
   c.querySelectorAll('.cd-row-del').forEach(btn => {
     btn.onclick = () => deleteEntry('work', btn.dataset.id);
   });
+  wireRowViewButtons(c, _data.work);
 }
 
 function workRowHtml(e) {
@@ -466,6 +467,7 @@ function workRowHtml(e) {
       </div>
       <div class="cd-row__actions">
         <button class="vault-tool-btn cd-row-edit" data-id="${e.id}">EDIT</button>
+        ${rowViewBtn(e)}
         <button class="vault-tool-btn cd-row-del" data-id="${e.id}">DEL</button>
       </div>
     </div>
@@ -508,6 +510,7 @@ function renderEdu(c) {
   c.querySelectorAll('.cd-row-del').forEach(btn => {
     btn.onclick = () => deleteEntry('edu', btn.dataset.id);
   });
+  wireRowViewButtons(c, _data.edu);
 }
 
 function eduRowHtml(e) {
@@ -531,6 +534,7 @@ function eduRowHtml(e) {
       </div>
       <div class="cd-row__actions">
         <button class="vault-tool-btn cd-row-edit" data-id="${e.id}">EDIT</button>
+        ${rowViewBtn(e)}
         <button class="vault-tool-btn cd-row-del" data-id="${e.id}">DEL</button>
       </div>
     </div>
@@ -577,6 +581,7 @@ function renderCerts(c) {
   c.querySelectorAll('.cd-row-del').forEach(btn => {
     btn.onclick = () => deleteEntry('certs', btn.dataset.id);
   });
+  wireRowViewButtons(c, _data.certs);
 }
 
 function certRowHtml(e) {
@@ -591,6 +596,7 @@ function certRowHtml(e) {
       </div>
       <div class="cd-row__actions">
         <button class="vault-tool-btn cd-row-edit" data-id="${e.id}">EDIT</button>
+        ${rowViewBtn(e)}
         <button class="vault-tool-btn cd-row-del" data-id="${e.id}">DEL</button>
       </div>
     </div>
@@ -818,6 +824,7 @@ function renderCompanies(c) {
       }
     };
   });
+  wireRowViewButtons(c, _data.companies);
 }
 
 function companyRowHtml(e) {
@@ -841,6 +848,7 @@ function companyRowHtml(e) {
       </div>
       <div class="cd-row__actions">
         <button class="vault-tool-btn cd-row-edit" data-id="${e.id}">EDIT</button>
+        ${rowViewBtn(e)}
         <button class="vault-tool-btn cd-row-del" data-id="${e.id}">DEL</button>
       </div>
     </div>
@@ -881,6 +889,7 @@ function renderIdProof(c) {
   c.querySelectorAll('.cd-row-del').forEach(btn => {
     btn.onclick = () => deleteEntry('idproof', btn.dataset.id);
   });
+  wireRowViewButtons(c, _data.idproof);
 }
 
 function idProofRowHtml(e) {
@@ -899,6 +908,7 @@ function idProofRowHtml(e) {
       </div>
       <div class="cd-row__actions">
         <button class="vault-tool-btn cd-row-edit" data-id="${e.id}">EDIT</button>
+        ${rowViewBtn(e)}
         <button class="vault-tool-btn cd-row-del" data-id="${e.id}">DEL</button>
       </div>
     </div>
@@ -957,6 +967,7 @@ function wireDossierActions(c) {
       }
     };
   });
+  wireRowViewButtons(c, _data.dossier);
 }
 
 function dossierRowHtml(e) {
@@ -978,6 +989,7 @@ function dossierRowHtml(e) {
       </div>
       <div class="cd-row__actions">
         <button class="vault-tool-btn cd-row-edit" data-id="${e.id}">EDIT</button>
+        ${rowViewBtn(e)}
         ${fileCount ? `<button class="vault-tool-btn dossier-dl-btn" data-id="${e.id}">⬇ DL</button>` : ''}
         <button class="vault-tool-btn cd-row-del" data-id="${e.id}">DEL</button>
       </div>
@@ -1608,6 +1620,30 @@ function uuid() {
   if (crypto.randomUUID) return crypto.randomUUID();
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{
     const r=Math.random()*16|0,v=c==='x'?r:(r&3|8); return v.toString(16);
+  });
+}
+
+/* ── Row-level VIEW button — shown on list cards (not just inside the
+   editor) so a file can be previewed without opening EDIT first.
+   Only rendered when the entry has at least one previewable file
+   (canView() already excludes ZIPs and other non-previewable types). */
+function rowViewBtn(entry) {
+  const viewable = (entry.files||[]).find(f => canView(f.mime, f.name));
+  if (!viewable) return '';
+  return `<button class="vault-tool-btn cd-row-view" data-id="${entry.id}" data-fid="${viewable.id}" title="View">👁 VIEW</button>`;
+}
+
+/* Wires every .cd-row-view button inside `container` for the given
+   in-memory `list` (e.g. _data.work, _data.dossier, …). */
+function wireRowViewButtons(container, list) {
+  container.querySelectorAll('.cd-row-view').forEach(btn => {
+    btn.onclick = async () => {
+      const entry = list.find(x => x.id === btn.dataset.id);
+      const file  = entry && (entry.files||[]).find(f => f.id === btn.dataset.fid);
+      if (!file) return;
+      try { openFileViewer(await loadFileBlob(file.id), file.name, file.mime); }
+      catch(err) { toast('Could not open file: ' + err.message, 'err'); }
+    };
   });
 }
 
