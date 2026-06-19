@@ -3667,6 +3667,7 @@ a { color: var(--lime); text-decoration: none; }
   justify-content: center;
   min-height: 200px;
   background: var(--bg-soft);
+  position: relative;
 }
 .cd-viewer-img {
   max-width: 100%;
@@ -3687,6 +3688,34 @@ a { color: var(--lime); text-decoration: none; }
   padding: 40px;
   line-height: 1.8;
 }
+.cd-viewer-position {
+  font-size: 11px;
+  color: var(--ink-faint);
+  white-space: nowrap;
+  font-family: var(--mono);
+}
+.cd-viewer-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(12,11,9,0.75);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  font-size: 24px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 2;
+  transition: background 0.15s, border-color 0.15s;
+}
+.cd-viewer-nav:hover { background: rgba(12,11,9,0.92); border-color: var(--lime-dim); color: var(--lime); }
+.cd-viewer-nav--prev { left: 12px; }
+.cd-viewer-nav--next { right: 12px; }
 
 /* Career Details — search bar row */
 .cd-search-row {
