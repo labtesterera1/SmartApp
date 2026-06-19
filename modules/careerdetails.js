@@ -12,12 +12,14 @@
 import { toast } from '../core/ui.js';
 import { openReaderOverlay } from '../core/reader-overlay.js';
 import { recordActivity } from '../core/profile.js';
+import { db } from '../core/storage.js';
 
-const STORAGE_KEY   = 'smartapp_careerdetails_v1';
-const MODULE_BUILD   = '2026-06-19.3'; // bump on every shipped fix so it's visible on-screen
-const PBKDF2_ITER   = 250000;
-const IDLE_MS       = 5 * 60 * 1000;
-const HISTORY_MAX   = 5;
+const STORAGE_KEY    = 'smartapp_careerdetails_v1';
+const IDB_STORE      = 'careerdetails';   // IndexedDB store holding encrypted file blobs
+const MODULE_BUILD    = '2026-06-19.4'; // bump on every shipped fix so it's visible on-screen
+const PBKDF2_ITER    = 250000;
+const IDLE_MS        = 5 * 60 * 1000;
+const HISTORY_MAX    = 5;
 
 /* ── in-memory state (wiped on lock) ── */
 let _key      = null;
@@ -110,6 +112,30 @@ async function persist() {
   const stored = loadStored();
   const blob   = await encryptBlob(_data, _key);
   saveStored({ ...stored, ...blob });
+}
+
+/* ============================================================
+   File blob storage — IndexedDB (NOT localStorage)
+   localStorage has a hard ~5-10MB quota shared across the whole
+   site. Photos, resumes, ID scans and documents are far too large
+   for that, so the actual file BYTES live in IndexedDB (quota is
+   typically hundreds of MB to several GB) while only lightweight
+   metadata {id, name, mime, size, addedAt} stays in the encrypted
+   localStorage blob. Each file is still individually AES-GCM
+   encrypted with the same master key before it touches IndexedDB.
+   ============================================================ */
+async function storeFileBlob(fileId, dataUrl) {
+  const blob = await encryptBlob({ dataUrl }, _key);
+  await db.put(IDB_STORE, { id: fileId, ...blob });
+}
+async function loadFileBlob(fileId) {
+  const record = await db.get(IDB_STORE, fileId);
+  if (!record) throw new Error('File data not found — it may not have finished uploading.');
+  const { dataUrl } = await decryptBlob({ iv: record.iv, ct: record.ct }, _key);
+  return dataUrl;
+}
+async function deleteFileBlob(fileId) {
+  try { await db.delete(IDB_STORE, fileId); } catch(e) { /* best-effort */ }
 }
 
 /* ============================================================
@@ -342,6 +368,7 @@ function renderMain() {
         <button class="vault-tool-btn" id="export-btn">⬇ EXPORT</button>
         <button class="vault-tool-btn" id="import-btn">⬆ IMPORT</button>
         <input type="file" id="import-file" accept=".json,application/json" hidden>
+        <span class="cd-storage-tag" id="storage-tag">storage: …</span>
         <button class="vault-tool-btn cd-lock-btn" id="lock-btn">🔒 LOCK</button>
       </div>
       <div class="cd-tabs" id="cd-tabs">
@@ -361,6 +388,25 @@ function renderMain() {
   _root.querySelector('#import-file').onchange = importData;
   renderTab(_root.querySelector('#cd-tab-body'));
   resetIdle();
+  updateStorageTag();
+}
+
+/* Shows how much of the browser's storage quota is in use, so file
+   uploads (photos, resumes, ID scans, documents) can be monitored.
+   This reflects the WHOLE browser storage quota shared across all
+   sites — not a Career Details-specific limit. */
+async function updateStorageTag() {
+  const tag = document.getElementById('storage-tag');
+  if (!tag) return;
+  try {
+    const { used, quota } = await db.usage();
+    if (!quota) { tag.textContent = 'storage: n/a'; return; }
+    const usedMB  = (used / 1024 / 1024).toFixed(1);
+    const quotaGB = (quota / 1024 / 1024 / 1024).toFixed(1);
+    const pct = quota ? Math.round((used / quota) * 100) : 0;
+    tag.textContent = `storage: ${usedMB} MB / ${quotaGB} GB (${pct}%)`;
+    tag.classList.toggle('cd-storage-tag--warn', pct >= 80);
+  } catch(e) { tag.textContent = 'storage: n/a'; }
 }
 
 function renderTab(container) {
@@ -573,10 +619,15 @@ function renderPhotos(c) {
     const file = e.target.files && e.target.files[0];
     e.target.value='';
     if (!file) return;
-    const data = await fileToBase64(file);
-    _data.photos.unshift({ id:uuid(), name:file.name, mime:file.type, data, addedAt:Date.now(), primary: _data.photos.length===0 });
-    await persist(); renderMain();
-    toast('✓ Photo added');
+    toast('Uploading photo…');
+    try {
+      const dataUrl = await fileToBase64(file);
+      const id = uuid();
+      await storeFileBlob(id, dataUrl);              // bytes → IndexedDB (encrypted)
+      _data.photos.unshift({ id, name:file.name, mime:file.type, size:file.size, addedAt:Date.now(), primary: _data.photos.length===0 });
+      await persist(); renderMain();                  // metadata only → localStorage
+      toast('✓ Photo added');
+    } catch(err) { toast('Photo upload failed: '+err.message, 'err'); }
   };
   c.querySelectorAll('.photo-primary-btn').forEach(btn => {
     btn.onclick = async () => {
@@ -588,23 +639,33 @@ function renderPhotos(c) {
   c.querySelectorAll('.photo-del-btn').forEach(btn => {
     btn.onclick = async () => {
       if (!confirm('Delete this photo?')) return;
+      await deleteFileBlob(btn.dataset.id);
       _data.photos = _data.photos.filter(p=>p.id!==btn.dataset.id);
       await persist(); renderMain();
       toast('✓ Photo deleted');
     };
   });
   c.querySelectorAll('.photo-dl-btn').forEach(btn => {
-    btn.onclick = () => {
+    btn.onclick = async () => {
       const p = _data.photos.find(x=>x.id===btn.dataset.id);
-      if (p) downloadFile(p.data, p.name, p.mime);
+      if (!p) return;
+      try { downloadFile(await loadFileBlob(p.id), p.name, p.mime); }
+      catch(err) { toast('Download failed: '+err.message, 'err'); }
     };
+  });
+  // Load each thumbnail asynchronously from IndexedDB
+  _data.photos.forEach(p => {
+    loadFileBlob(p.id).then(dataUrl => {
+      const img = c.querySelector(`.cd-photo-img[data-id="${p.id}"]`);
+      if (img) img.src = dataUrl;
+    }).catch(() => { /* file missing — thumbnail stays blank */ });
   });
 }
 
 function photoCardHtml(p, i) {
   return `
     <div class="cd-photo-card ${p.primary?'is-primary':''}">
-      <img class="cd-photo-img" src="${p.data}" alt="Photo ${i+1}">
+      <img class="cd-photo-img" data-id="${p.id}" alt="Photo ${i+1}">
       ${p.primary ? '<div class="cd-photo-badge">★ PRIMARY</div>' : ''}
       <div class="cd-photo-name">${esc(p.name)}</div>
       <div class="cd-photo-date">${formatDate(p.addedAt)}</div>
@@ -639,10 +700,15 @@ function renderResume(c) {
     const file = e.target.files && e.target.files[0];
     e.target.value='';
     if (!file) return;
-    const data = await fileToBase64(file);
-    _data.resume.unshift({ id:uuid(), name:file.name, mime:file.type, size:file.size, data, addedAt:Date.now(), active:_data.resume.length===0, notes:'' });
-    await persist(); renderMain();
-    toast('✓ Resume added');
+    toast('Uploading resume…');
+    try {
+      const dataUrl = await fileToBase64(file);
+      const id = uuid();
+      await storeFileBlob(id, dataUrl);
+      _data.resume.unshift({ id, name:file.name, mime:file.type, size:file.size, addedAt:Date.now(), active:_data.resume.length===0, notes:'' });
+      await persist(); renderMain();
+      toast('✓ Resume added');
+    } catch(err) { toast('Resume upload failed: '+err.message, 'err'); }
   };
   c.querySelectorAll('.resume-active-btn').forEach(btn => {
     btn.onclick = async () => {
@@ -654,15 +720,18 @@ function renderResume(c) {
   c.querySelectorAll('.resume-del-btn').forEach(btn => {
     btn.onclick = async () => {
       if (!confirm('Delete this resume version?')) return;
+      await deleteFileBlob(btn.dataset.id);
       _data.resume = _data.resume.filter(r=>r.id!==btn.dataset.id);
       await persist(); renderMain();
       toast('✓ Resume deleted');
     };
   });
   c.querySelectorAll('.resume-dl-btn').forEach(btn => {
-    btn.onclick = () => {
+    btn.onclick = async () => {
       const r = _data.resume.find(x=>x.id===btn.dataset.id);
-      if (r) downloadFile(r.data, r.name, r.mime);
+      if (!r) return;
+      try { downloadFile(await loadFileBlob(r.id), r.name, r.mime); }
+      catch(err) { toast('Download failed: '+err.message, 'err'); }
     };
   });
 }
@@ -879,11 +948,13 @@ function wireDossierActions(c) {
     btn.onclick = () => deleteEntry('dossier', btn.dataset.id);
   });
   c.querySelectorAll('.dossier-dl-btn').forEach(btn => {
-    btn.onclick = () => {
+    btn.onclick = async () => {
       const entry = _data.dossier.find(x=>x.id===btn.dataset.id);
-      if (entry && (entry.files||[]).length) {
-        entry.files.forEach(f => downloadFile(f.data, f.name, f.mime));
-      } else toast('No files attached','warn');
+      if (!entry || !(entry.files||[]).length) { toast('No files attached','warn'); return; }
+      for (const f of entry.files) {
+        try { downloadFile(await loadFileBlob(f.id), f.name, f.mime); }
+        catch(err) { toast(`Could not download ${f.name}: ${err.message}`, 'err'); }
+      }
     };
   });
 }
@@ -1200,8 +1271,9 @@ function wireFilePicker(container, entry) {
       <div class="cd-file-item" data-fid="${f.id}">
         <span class="cd-file-item__name">${esc(f.name)}</span>
         <span class="cd-file-item__size">${fileSizeStr(f.size)}</span>
-        <button type="button" class="vault-tool-btn file-dl-btn" data-fid="${f.id}">⬇</button>
-        <button type="button" class="vault-tool-btn file-del-btn" data-fid="${f.id}">×</button>
+        ${canView(f.mime, f.name) ? `<button type="button" class="vault-tool-btn file-view-btn" data-fid="${f.id}" title="View">👁</button>` : ''}
+        <button type="button" class="vault-tool-btn file-dl-btn" data-fid="${f.id}" title="Download">⬇</button>
+        <button type="button" class="vault-tool-btn file-del-btn" data-fid="${f.id}" title="Remove">×</button>
       </div>
     `).join('') || '<div class="cd-file-empty">No files yet</div>';
     wireFileActions(container, entry, refreshFileList);
@@ -1213,14 +1285,20 @@ function wireFilePicker(container, entry) {
     const files = Array.from(e.target.files||[]);
     e.target.value='';
     if (!files.length) return;
-    toast(`Loading ${files.length} file(s)…`);
+    toast(`Uploading ${files.length} file(s)…`);
+    let okCount = 0;
     for (const file of files) {
-      const data = await fileToBase64(file);
-      entry.files = entry.files||[];
-      entry.files.push({ id:uuid(), name:file.name, mime:file.type, size:file.size, data, addedAt:Date.now() });
+      try {
+        const dataUrl = await fileToBase64(file);
+        const id = uuid();
+        await storeFileBlob(id, dataUrl);   // bytes → IndexedDB (encrypted)
+        entry.files = entry.files||[];
+        entry.files.push({ id, name:file.name, mime:file.type, size:file.size, addedAt:Date.now() });
+        okCount++;
+      } catch(err) { toast(`Failed to attach ${file.name}: ${err.message}`, 'err'); }
     }
     refreshFileList();
-    toast(`✓ ${files.length} file(s) attached`);
+    if (okCount) toast(`✓ ${okCount} file(s) attached`);
   };
   wireFileActions(container, entry, refreshFileList);
 
@@ -1237,19 +1315,24 @@ function wireFilePicker(container, entry) {
 
 function wireFileActions(container, entry, refresh) {
   container.querySelectorAll('.file-view-btn').forEach(btn => {
-    btn.onclick = () => {
+    btn.onclick = async () => {
       const f = (entry.files||[]).find(x=>x.id===btn.dataset.fid);
-      if (f) openFileViewer(f.data, f.name, f.mime);
+      if (!f) return;
+      try { openFileViewer(await loadFileBlob(f.id), f.name, f.mime); }
+      catch(err) { toast('Could not open file: '+err.message, 'err'); }
     };
   });
   container.querySelectorAll('.file-dl-btn').forEach(btn => {
-    btn.onclick = () => {
+    btn.onclick = async () => {
       const f = (entry.files||[]).find(x=>x.id===btn.dataset.fid);
-      if (f) downloadFile(f.data, f.name, f.mime);
+      if (!f) return;
+      try { downloadFile(await loadFileBlob(f.id), f.name, f.mime); }
+      catch(err) { toast('Download failed: '+err.message, 'err'); }
     };
   });
   container.querySelectorAll('.file-del-btn').forEach(btn => {
-    btn.onclick = () => {
+    btn.onclick = async () => {
+      await deleteFileBlob(btn.dataset.fid);
       entry.files = (entry.files||[]).filter(x=>x.id!==btn.dataset.fid);
       refresh();
       toast('File removed');
@@ -1355,6 +1438,12 @@ function renderPreview(el, raw) {
    ============================================================ */
 async function deleteEntry(section, id) {
   if (!confirm('Delete this entry? Cannot be undone.')) return;
+  const entry = _data[section].find(x=>x.id===id);
+  // Clean up any attached file blobs in IndexedDB so deleted entries
+  // don't leave orphaned encrypted files taking up storage forever.
+  if (entry && (entry.files||[]).length) {
+    for (const f of entry.files) await deleteFileBlob(f.id);
+  }
   _data[section] = _data[section].filter(x=>x.id!==id);
   await persist();
   toast('✓ Deleted');
@@ -1413,18 +1502,41 @@ async function exportData() {
       const stored  = loadStored();
       const testKey = await deriveKey(pw, b64ToBytes(stored.salt));
       await decryptBlob({ iv: stored.iv, ct: stored.ct }, testKey); // verify pw
+
+      // Collect every file id referenced anywhere in _data so the export
+      // is a complete, self-contained backup (metadata + actual bytes).
+      const allFileIds = collectAllFileIds(_data);
+      toast(allFileIds.length ? `Packaging ${allFileIds.length} file(s)…` : 'Packaging…');
+      const fileBlobs = {};
+      for (const id of allFileIds) {
+        try { fileBlobs[id] = await loadFileBlob(id); }
+        catch(e) { /* file missing in IndexedDB — skip, metadata stays but file won't restore */ }
+      }
+
       const exportSalt = crypto.getRandomValues(new Uint8Array(16));
       const exportKey  = await deriveKey(pw, exportSalt);
-      const blob = await encryptBlob({ data: _data, exportedAt: new Date().toISOString() }, exportKey);
-      const payload = JSON.stringify({ app:'smartapp', module:'careerdetails', v:1, salt: bytesToB64(exportSalt), ...blob });
+      const blob = await encryptBlob({ data: _data, files: fileBlobs, exportedAt: new Date().toISOString() }, exportKey);
+      const payload = JSON.stringify({ app:'smartapp', module:'careerdetails', v:2, salt: bytesToB64(exportSalt), ...blob });
       const url = URL.createObjectURL(new Blob([payload], { type:'application/json' }));
       const a   = document.createElement('a');
       a.href = url; a.download = `careerdetails-export-${ts()}.json`;
       document.body.appendChild(a); a.click();
       setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); }, 1000);
-      toast('✓ Exported (encrypted)');
+      toast('✓ Exported (encrypted, with files)');
     } catch(e) { toast('Export failed — wrong password: '+e.message,'err'); }
   });
+}
+
+/* Walk every section and pull out every file id referenced, so export/import
+   know exactly which IndexedDB blobs belong to this data set. */
+function collectAllFileIds(data) {
+  const ids = [];
+  ['work','edu','certs','companies','idproof','dossier'].forEach(s => {
+    (data[s]||[]).forEach(e => (e.files||[]).forEach(f => ids.push(f.id)));
+  });
+  (data.photos||[]).forEach(p => ids.push(p.id));
+  (data.resume||[]).forEach(r => ids.push(r.id));
+  return ids;
 }
 
 async function importData(e) {
@@ -1439,7 +1551,10 @@ async function importData(e) {
       const key  = await deriveKey(pw, b64ToBytes(obj.salt));
       const dec  = await decryptBlob({ iv: obj.iv, ct: obj.ct }, key);
       const incoming = dec.data;
-      if (!confirm(`Import will MERGE with current data. Exported: ${dec.exportedAt||'unknown'}. Continue?`)) return;
+      const incomingFiles = dec.files || {}; // { fileId: dataUrl } — present in v2+ exports
+      const fileCount = Object.keys(incomingFiles).length;
+      if (!confirm(`Import will MERGE with current data${fileCount?` (including ${fileCount} file(s))`:''}. Exported: ${dec.exportedAt||'unknown'}. Continue?`)) return;
+
       ['work','edu','certs','photos','resume','companies','idproof','dossier'].forEach(s => {
         const cur = _data[s]||[];
         const inc = incoming[s]||[];
@@ -1447,6 +1562,16 @@ async function importData(e) {
         inc.forEach(x => { if(!ids.has(x.id)) cur.push(x); });
         _data[s] = cur;
       });
+
+      // Restore file bytes into IndexedDB for every file id in this import
+      if (fileCount) {
+        toast(`Restoring ${fileCount} file(s)…`);
+        for (const [fileId, dataUrl] of Object.entries(incomingFiles)) {
+          try { await storeFileBlob(fileId, dataUrl); }
+          catch(err) { console.warn('Failed to restore file', fileId, err); }
+        }
+      }
+
       await persist();
       toast('✓ Import complete');
       renderMain();
