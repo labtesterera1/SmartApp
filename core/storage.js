@@ -21,7 +21,7 @@ const STORES = [
   'signupkit',       // Sign-Up Kit accounts
   'signup_urls',     // Sign-Up Kit URLs (independent list)
   'reader_notes',    // Reader / Notes module
-  'careerdetails',   // Career Details module (metadata only — blobs in localStorage encrypted)
+  'careerdetails',   // Career Details module (encrypted file blobs; metadata is in localStorage)
 ];
 
 let _dbPromise = null;
