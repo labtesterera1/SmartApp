@@ -3871,3 +3871,21 @@ a { color: var(--lime); text-decoration: none; }
   margin-bottom: 4px;
 }
 .pdf-toolkit-link:hover { color: var(--lime); border-color: var(--lime); }
+
+/* PDF Toolkit — Unlock warning box */
+.pdfk-warn-box {
+  background: rgba(255, 159, 67, 0.08);
+  border: 1px solid var(--warn);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  font-size: 11px;
+  color: var(--warn);
+  line-height: 1.6;
+}
+
+/* Career Details — file-level LAUNCH button (DOC/DOCX) */
+.file-launch-btn, .resume-launch-btn {
+  color: var(--lime-dim);
+  border-color: var(--lime-dim);
+}
+.file-launch-btn:hover, .resume-launch-btn:hover { color: var(--lime); border-color: var(--lime); }
