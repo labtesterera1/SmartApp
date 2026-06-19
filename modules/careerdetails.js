@@ -14,6 +14,7 @@ import { openReaderOverlay } from '../core/reader-overlay.js';
 import { recordActivity } from '../core/profile.js';
 
 const STORAGE_KEY   = 'smartapp_careerdetails_v1';
+const MODULE_BUILD   = '2026-06-19.3'; // bump on every shipped fix so it's visible on-screen
 const PBKDF2_ITER   = 250000;
 const IDLE_MS       = 5 * 60 * 1000;
 const HISTORY_MAX   = 5;
@@ -179,6 +180,7 @@ function renderUnlock() {
       <div class="cd-lock-icon">🔒</div>
       <div class="cd-lock-title">Career Details</div>
       <div class="cd-lock-sub">Enter your master password to access your personal data.</div>
+      <div class="cd-build-tag">build ${MODULE_BUILD}</div>
       <div class="vault-field">
         <span class="vault-field__label">Password</span>
         <div class="vault-pwrow vault-pwrow--unlock">
