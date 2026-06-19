@@ -1372,18 +1372,39 @@ async function orgDeleteFile(section, fileId) {
 
 async function orgShareNative(file, blob) {
   if (!navigator.share) { toast('Sharing not supported on this browser', 'warn'); return; }
-  const fileObj = new File([blob], file.name, { type: file.mime || 'application/octet-stream' });
-  try {
-    if (navigator.canShare && navigator.canShare({ files: [fileObj] })) {
+  const mimeType = file.mime || blob.type || 'application/octet-stream';
+  const fileObj = new File([blob], file.name, {
+    type: mimeType,
+    lastModified: file.addedAt || Date.now(),
+  });
+
+  const canShareFiles = navigator.canShare && navigator.canShare({ files: [fileObj] });
+
+  // Try sharing the actual file first (works reliably for PDF/images).
+  // DOC/DOCX is known to be unreliable here across browsers — canShare()
+  // can report true and then the real share() call still rejects it with
+  // a permission-style error, so this always has a working fallback
+  // rather than just erroring out.
+  if (canShareFiles) {
+    try {
       await navigator.share({ title: file.name, text: file.name, files: [fileObj] });
       toast('✓ Shared');
-    } else {
-      await navigator.share({ title: file.name, text: `${file.name} · ${fileSizeStr(file.size)}` });
-      toast('Text shared (file attach not supported here)', 'warn');
+      return;
+    } catch(err) {
+      if (err.name === 'AbortError') return; // user cancelled — don't fall back
+      console.warn('[Doc Organizer] file share rejected, falling back to text-only', {
+        name: err.name, message: err.message, fileName: file.name, mime: mimeType,
+      });
+      // fall through to text-only share below
     }
+  }
+
+  try {
+    await navigator.share({ title: file.name, text: `${file.name} · ${fileSizeStr(file.size)} — use Download to get the actual file, this device's share doesn't support attaching ${mimeType.includes('word')?'Word documents':'this file type'} directly.` });
+    toast('Shared as text — Word docs aren\'t reliably file-shareable on this device. Use Download instead.', 'warn');
   } catch(err) {
     if (err.name === 'AbortError') return;
-    toast('Share failed: ' + err.message, 'err');
+    toast('Share failed: ' + err.message + ' — try Download instead', 'err');
   }
 }
 function orgShareWhatsApp(file) {
@@ -2254,7 +2275,6 @@ async function openDocxPreview(fileId, name, mime) {
     <div class="cd-viewer-box">
       <div class="cd-viewer-toolbar">
         <span class="cd-viewer-name">${esc(name)}</span>
-        <button class="vault-tool-btn" id="cd-docx-launch">🚀 Launch / Download</button>
         <button class="vault-tool-btn cd-viewer-close" id="cd-docx-close">✕ Close</button>
       </div>
       <div class="cd-viewer-body cd-docx-body" id="cd-docx-body">
@@ -2268,7 +2288,6 @@ async function openDocxPreview(fileId, name, mime) {
   document.addEventListener('keydown', keyHandler);
   overlay.querySelector('#cd-docx-close').onclick = close;
   overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
-  overlay.querySelector('#cd-docx-launch').onclick = () => launchFileBlob(fileId, name, mime);
 
   const bodyEl = overlay.querySelector('#cd-docx-body');
   try {
