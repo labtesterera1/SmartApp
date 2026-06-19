@@ -13,6 +13,7 @@ import { toast } from '../core/ui.js';
 import { openReaderOverlay } from '../core/reader-overlay.js';
 import { recordActivity } from '../core/profile.js';
 import { db } from '../core/storage.js';
+import { goToModule } from '../core/router.js';
 
 const STORAGE_KEY    = 'smartapp_careerdetails_v1';
 const IDB_STORE      = 'careerdetails';   // IndexedDB store holding encrypted file blobs
@@ -756,12 +757,14 @@ function renderResume(c) {
       <button class="btn btn--primary" id="resume-pick-btn">📄 SELECT RESUME</button>
       <div class="cd-note">All versions kept. Mark one as Active.</div>
     </div>
+    <button class="vault-tool-btn pdf-toolkit-link" id="open-pdf-toolkit">🛠 Open PDF Toolkit — convert DOC to PDF, merge, split, edit, reduce size</button>
     <div class="cd-list" id="resume-list">
       ${_data.resume.length===0
         ? `<div class="cd-empty">No resume uploaded yet.</div>`
         : _data.resume.map((r,i) => resumeRowHtml(r,i)).join('')}
     </div>
   `;
+  c.querySelector('#open-pdf-toolkit').onclick = () => goToModule('pdftoolkit');
   c.querySelector('#resume-pick-btn').onclick = () => c.querySelector('#resume-input').click();
   c.querySelector('#resume-input').onchange = async (e) => {
     const file = e.target.files && e.target.files[0];
