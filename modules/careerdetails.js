@@ -269,6 +269,70 @@ const TABS = [
   { id:'dossier',   label:'🗂 Dossier'   },
 ];
 
+/* ============================================================
+   Shared search / sort / empty-state helpers
+   (used by Work, Education, Certs, ID Proof, Dossier tabs)
+   ============================================================ */
+function searchBar(prefix, searchVal, sortOptions, sortVal, totalCount) {
+  return `
+    <div class="cd-search-row">
+      <input type="text" id="${prefix}-search" class="cd-input cd-search-input"
+             placeholder="Search…" value="${esc(searchVal||'')}">
+      ${sortOptions && sortOptions.length ? `
+        <select id="${prefix}-sort" class="cd-select">
+          ${sortOptions.map(o=>`<option value="${esc(o.val)}" ${sortVal===o.val?'selected':''}>${esc(o.lbl)}</option>`).join('')}
+        </select>
+      ` : ''}
+      <span class="cd-search-count">${totalCount} total</span>
+    </div>
+  `;
+}
+
+function wireSearchBar(container, prefix, onSearch, onSort) {
+  const searchEl = container.querySelector(`#${prefix}-search`);
+  if (searchEl) {
+    let debounce;
+    searchEl.oninput = (e) => {
+      clearTimeout(debounce);
+      const v = e.target.value;
+      // debounce slightly so typing doesn't re-render on every keystroke
+      debounce = setTimeout(() => onSearch(v), 250);
+    };
+    // keep cursor position friendly — focus stays since renderMain() rebuilds DOM;
+    // re-focus + restore cursor at end after re-render
+    searchEl.focus();
+    const len = searchEl.value.length;
+    searchEl.setSelectionRange(len, len);
+  }
+  const sortEl = container.querySelector(`#${prefix}-sort`);
+  if (sortEl && onSort) {
+    sortEl.onchange = (e) => onSort(e.target.value);
+  }
+}
+
+function applySearchSort(list, searchVal, sortVal, searchTextFn) {
+  let out = list;
+  if (searchVal && searchVal.trim()) {
+    const q = searchVal.trim().toLowerCase();
+    out = out.filter(e => searchTextFn(e).toLowerCase().includes(q));
+  }
+  if (sortVal === 'oldest') {
+    out = [...out].reverse();
+  } else if (sortVal === 'company') {
+    out = [...out].sort((a,b) => (a.company||'').localeCompare(b.company||''));
+  } else if (sortVal === 'title') {
+    out = [...out].sort((a,b) => (a.jobTitle||'').localeCompare(b.jobTitle||''));
+  }
+  // 'newest' = default insertion order (unshift puts newest first already)
+  return out;
+}
+
+function emptyMsg(totalCount, label) {
+  return totalCount === 0
+    ? `<div class="cd-empty">No ${label} entries added yet.</div>`
+    : `<div class="cd-empty">No results match your search/filter.</div>`;
+}
+
 function renderMain() {
   _root.innerHTML = `
     <div class="cd-wrap">
@@ -314,14 +378,22 @@ function renderTab(container) {
    TAB 1 — Work Experience
    ============================================================ */
 function renderWork(c) {
+  const filtered = applySearchSort(_data.work, _workSearch, _workSort,
+    e => `${e.jobTitle} ${e.company} ${e.empId} ${e.location}`);
   c.innerHTML = `
+    ${searchBar('work', _workSearch, [
+      {val:'newest',lbl:'Newest First'},{val:'oldest',lbl:'Oldest First'},
+      {val:'company',lbl:'Company A-Z'},{val:'title',lbl:'Title A-Z'}
+    ], _workSort, _data.work.length)}
     <button class="btn btn--primary cd-add-btn" id="add-work">+ ADD EXPERIENCE</button>
     <div class="cd-list" id="work-list">
-      ${_data.work.length === 0
-        ? `<div class="cd-empty">No work experience added yet.</div>`
-        : _data.work.map(e => workRowHtml(e)).join('')}
+      ${filtered.length===0 ? emptyMsg(_data.work.length, 'work experience') : filtered.map(e=>workRowHtml(e)).join('')}
     </div>
   `;
+  wireSearchBar(c, 'work',
+    v => { _workSearch=v; renderMain(); },
+    v => { _workSort=v;   renderMain(); }
+  );
   c.querySelector('#add-work').onclick = () => { _editCtx = { section:'work', id:null }; renderEditor(_editCtx); };
   c.querySelectorAll('.cd-row-edit').forEach(btn => {
     btn.onclick = () => { _editCtx = { section:'work', id: btn.dataset.id }; renderEditor(_editCtx); };
@@ -356,14 +428,31 @@ function workRowHtml(e) {
    TAB 2 — Education
    ============================================================ */
 function renderEdu(c) {
+  const levels = [...new Set(_data.edu.map(x=>x.level).filter(Boolean))].sort();
+  let list = _data.edu.filter(e =>
+    (!_eduFilter || e.level===_eduFilter) &&
+    (!_eduSearch || `${e.institution} ${e.degree} ${e.university} ${e.specialization}`.toLowerCase().includes(_eduSearch.toLowerCase()))
+  );
+  if (_eduSort==='oldest') list = [...list].reverse();
   c.innerHTML = `
+    ${searchBar('edu', _eduSearch, [
+      {val:'newest',lbl:'Newest First'},{val:'oldest',lbl:'Oldest First'}
+    ], _eduSort, _data.edu.length)}
+    <div class="cd-filter-bar" style="margin-bottom:10px;">
+      <select id="edu-level-filter" class="cd-select">
+        <option value="">All Levels</option>
+        ${levels.map(l=>`<option value="${esc(l)}" ${_eduFilter===l?'selected':''}>${esc(l)}</option>`).join('')}
+      </select>
+      <button class="vault-tool-btn" id="edu-filter-clear">CLEAR</button>
+    </div>
     <button class="btn btn--primary cd-add-btn" id="add-edu">+ ADD EDUCATION</button>
-    <div class="cd-list" id="edu-list">
-      ${_data.edu.length === 0
-        ? `<div class="cd-empty">No education records added yet.</div>`
-        : _data.edu.map(e => eduRowHtml(e)).join('')}
+    <div class="cd-list">
+      ${list.length===0 ? emptyMsg(_data.edu.length,'education record') : list.map(e=>eduRowHtml(e)).join('')}
     </div>
   `;
+  wireSearchBar(c,'edu', v=>{_eduSearch=v;renderMain();}, v=>{_eduSort=v;renderMain();});
+  c.querySelector('#edu-level-filter').onchange = e => { _eduFilter=e.target.value; renderMain(); };
+  c.querySelector('#edu-filter-clear').onclick  = () => { _eduFilter=''; renderMain(); };
   c.querySelector('#add-edu').onclick = () => { _editCtx = { section:'edu', id:null }; renderEditor(_editCtx); };
   c.querySelectorAll('.cd-row-edit').forEach(btn => {
     btn.onclick = () => { _editCtx = { section:'edu', id: btn.dataset.id }; renderEditor(_editCtx); };
@@ -404,14 +493,35 @@ function eduRowHtml(e) {
    TAB 3 — Certifications
    ============================================================ */
 function renderCerts(c) {
+  const today = new Date().toISOString().slice(0,10);
+  let list = _data.certs.filter(e => {
+    const matchSearch = !_certSearch || `${e.name} ${e.issuer} ${e.certId}`.toLowerCase().includes(_certSearch.toLowerCase());
+    const matchFilter = !_certFilter ||
+      (_certFilter==='active'  && (!e.expiryDate || e.expiryDate >= today)) ||
+      (_certFilter==='expired' && e.expiryDate && e.expiryDate < today);
+    return matchSearch && matchFilter;
+  });
+  if (_certSort==='oldest') list=[...list].reverse();
   c.innerHTML = `
+    ${searchBar('cert', _certSearch, [
+      {val:'newest',lbl:'Newest First'},{val:'oldest',lbl:'Oldest First'}
+    ], _certSort, _data.certs.length)}
+    <div class="cd-filter-bar" style="margin-bottom:10px;">
+      <select id="cert-status-filter" class="cd-select">
+        <option value="" ${!_certFilter?'selected':''}>All Status</option>
+        <option value="active"  ${_certFilter==='active'?'selected':''}>Active</option>
+        <option value="expired" ${_certFilter==='expired'?'selected':''}>Expired</option>
+      </select>
+      <button class="vault-tool-btn" id="cert-filter-clear">CLEAR</button>
+    </div>
     <button class="btn btn--primary cd-add-btn" id="add-cert">+ ADD CERTIFICATE</button>
     <div class="cd-list">
-      ${_data.certs.length === 0
-        ? `<div class="cd-empty">No certificates added yet.</div>`
-        : _data.certs.map(e => certRowHtml(e)).join('')}
+      ${list.length===0 ? emptyMsg(_data.certs.length,'certificate') : list.map(e=>certRowHtml(e)).join('')}
     </div>
   `;
+  wireSearchBar(c,'cert', v=>{_certSearch=v;renderMain();}, v=>{_certSort=v;renderMain();});
+  c.querySelector('#cert-status-filter').onchange = e => { _certFilter=e.target.value; renderMain(); };
+  c.querySelector('#cert-filter-clear').onclick   = () => { _certFilter=''; renderMain(); };
   c.querySelector('#add-cert').onclick = () => { _editCtx = { section:'certs', id:null }; renderEditor(_editCtx); };
   c.querySelectorAll('.cd-row-edit').forEach(btn => {
     btn.onclick = () => { _editCtx = { section:'certs', id: btn.dataset.id }; renderEditor(_editCtx); };
@@ -576,7 +686,12 @@ function resumeRowHtml(r, i) {
 /* ============================================================
    TAB 6 — Company Applications
    ============================================================ */
-let _coFilter = { year:'', month:'' };
+let _coFilter    = { year:'', month:'' };
+let _workSearch  = ''; let _workSort   = 'newest';
+let _eduSearch   = ''; let _eduFilter  = ''; let _eduSort = 'newest';
+let _certSearch  = ''; let _certFilter = ''; let _certSort = 'newest';
+let _idSearch    = ''; let _idFilter   = '';
+let _dossierSearch = ''; let _dossierFilter = '';
 
 function renderCompanies(c) {
   const years  = [...new Set(_data.companies.map(x=>x.applyYear).filter(Boolean))].sort().reverse();
@@ -665,14 +780,29 @@ function companyRowHtml(e) {
    TAB 7 — ID Proof
    ============================================================ */
 function renderIdProof(c) {
+  const idTypes = [...new Set(_data.idproof.map(x=>x.idName).filter(Boolean))].sort();
+  const today   = new Date().toISOString().slice(0,10);
+  let list = _data.idproof.filter(e =>
+    (!_idFilter || e.idName===_idFilter) &&
+    (!_idSearch || `${e.idName} ${e.idNumber} ${e.issuedBy}`.toLowerCase().includes(_idSearch.toLowerCase()))
+  );
   c.innerHTML = `
+    ${searchBar('id', _idSearch, [], '', _data.idproof.length)}
+    <div class="cd-filter-bar" style="margin-bottom:10px;">
+      <select id="id-type-filter" class="cd-select">
+        <option value="">All Types</option>
+        ${idTypes.map(t=>`<option value="${esc(t)}" ${_idFilter===t?'selected':''}>${esc(t)}</option>`).join('')}
+      </select>
+      <button class="vault-tool-btn" id="id-filter-clear">CLEAR</button>
+    </div>
     <button class="btn btn--primary cd-add-btn" id="add-idproof">+ ADD ID PROOF</button>
     <div class="cd-list">
-      ${_data.idproof.length === 0
-        ? `<div class="cd-empty">No ID proofs added yet.</div>`
-        : _data.idproof.map(e => idProofRowHtml(e)).join('')}
+      ${list.length===0 ? emptyMsg(_data.idproof.length,'ID proof') : list.map(e=>idProofRowHtml(e)).join('')}
     </div>
   `;
+  wireSearchBar(c,'id', v=>{_idSearch=v;renderMain();}, null);
+  c.querySelector('#id-type-filter').onchange = e => { _idFilter=e.target.value; renderMain(); };
+  c.querySelector('#id-filter-clear').onclick  = () => { _idFilter=''; renderMain(); };
   c.querySelector('#add-idproof').onclick = () => { _editCtx = { section:'idproof', id:null }; renderEditor(_editCtx); };
   c.querySelectorAll('.cd-row-edit').forEach(btn => {
     btn.onclick = () => { _editCtx = { section:'idproof', id: btn.dataset.id }; renderEditor(_editCtx); };
@@ -708,13 +838,13 @@ function idProofRowHtml(e) {
    TAB 8 — Dossier (Personal/Professional Documents)
    ============================================================ */
 function renderDossier(c) {
-  // filter bar
   const types = [...new Set(_data.dossier.map(x=>x.docType).filter(Boolean))].sort();
   c.innerHTML = `
-    <div class="cd-filter-bar">
+    ${searchBar('dossier', _dossierSearch, [], '', _data.dossier.length)}
+    <div class="cd-filter-bar" style="margin-bottom:10px;">
       <select id="dossier-filter" class="cd-select">
         <option value="">All Types</option>
-        ${types.map(t=>`<option value="${esc(t)}">${esc(t)}</option>`).join('')}
+        ${types.map(t=>`<option value="${esc(t)}" ${_dossierFilter===t?'selected':''}>${esc(t)}</option>`).join('')}
       </select>
       <button class="vault-tool-btn" id="dossier-clear">CLEAR</button>
     </div>
@@ -723,28 +853,20 @@ function renderDossier(c) {
       ${renderDossierList()}
     </div>
   `;
-  let _dossierFilter = '';
-  c.querySelector('#dossier-filter').onchange = (e) => {
-    _dossierFilter = e.target.value;
-    c.querySelector('#dossier-list').innerHTML = renderDossierList(_dossierFilter);
-    wireDossierActions(c);
-  };
-  c.querySelector('#dossier-clear').onclick = () => {
-    _dossierFilter = '';
-    c.querySelector('#dossier-filter').value = '';
-    c.querySelector('#dossier-list').innerHTML = renderDossierList('');
-    wireDossierActions(c);
-  };
+  wireSearchBar(c,'dossier', v=>{_dossierSearch=v;renderMain();}, null);
+  c.querySelector('#dossier-filter').onchange = e => { _dossierFilter=e.target.value; renderMain(); };
+  c.querySelector('#dossier-clear').onclick   = () => { _dossierFilter=''; renderMain(); };
   c.querySelector('#add-dossier').onclick = () => { _editCtx = { section:'dossier', id:null }; renderEditor(_editCtx); };
   wireDossierActions(c);
 }
 
-function renderDossierList(filter='') {
-  const list = filter
-    ? _data.dossier.filter(x => x.docType === filter)
-    : _data.dossier;
-  if (list.length === 0) return `<div class="cd-empty">${_data.dossier.length===0?'No documents added yet.':'No results match the filter.'}</div>`;
-  return list.map(e => dossierRowHtml(e)).join('');
+function renderDossierList() {
+  const list = _data.dossier.filter(e =>
+    (!_dossierFilter || e.docType===_dossierFilter) &&
+    (!_dossierSearch || `${e.docName} ${e.docNumber} ${e.issuedBy} ${e.docType}`.toLowerCase().includes(_dossierSearch.toLowerCase()))
+  );
+  if (list.length===0) return `<div class="cd-empty">${_data.dossier.length===0?'No documents added yet.':'No results match the filter.'}</div>`;
+  return list.map(e=>dossierRowHtml(e)).join('');
 }
 
 function wireDossierActions(c) {
