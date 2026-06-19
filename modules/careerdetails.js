@@ -139,6 +139,58 @@ async function deleteFileBlob(fileId) {
 }
 
 /* ============================================================
+   One-time migration: older saves (before the IndexedDB switch)
+   stored file BYTES directly on the file object as `f.data`
+   (a base64 data URL) inside the encrypted localStorage blob.
+   On unlock, find any such files, move their bytes into
+   IndexedDB the same way new uploads work, then strip `.data`
+   from the metadata and persist — so old files become viewable
+   and downloadable again, and localStorage shrinks back down.
+   Safe to run every unlock: does nothing once already migrated.
+   ============================================================ */
+async function migrateLegacyFileBlobs() {
+  if (!_data) return;
+  const sections = ['work','edu','certs','companies','idproof','dossier'];
+  let migrated = 0;
+  let failed   = 0;
+
+  for (const s of sections) {
+    for (const entry of (_data[s]||[])) {
+      for (const f of (entry.files||[])) {
+        if (f.data) {
+          try {
+            await storeFileBlob(f.id, f.data);
+            delete f.data;
+            migrated++;
+          } catch(e) { failed++; }
+        }
+      }
+    }
+  }
+  // Photos and resume use the same legacy pattern
+  for (const p of (_data.photos||[])) {
+    if (p.data) {
+      try { await storeFileBlob(p.id, p.data); delete p.data; migrated++; }
+      catch(e) { failed++; }
+    }
+  }
+  for (const r of (_data.resume||[])) {
+    if (r.data) {
+      try { await storeFileBlob(r.id, r.data); delete r.data; migrated++; }
+      catch(e) { failed++; }
+    }
+  }
+
+  if (migrated > 0) {
+    await persist(); // save the now-slimmer metadata (file bytes removed)
+    toast(`✓ Upgraded storage for ${migrated} older file(s)`);
+  }
+  if (failed > 0) {
+    toast(`⚠ ${failed} older file(s) could not be upgraded — they may need to be re-attached`, 'warn');
+  }
+}
+
+/* ============================================================
    Setup — first-time password creation
    ============================================================ */
 function renderSetup() {
@@ -261,6 +313,7 @@ function renderUnlock() {
       _data.idproof   = _data.idproof   || [];
       _data.dossier   = _data.dossier   || [];
       _key = key;
+      await migrateLegacyFileBlobs(); // move any pre-IndexedDB file bytes (old .data field) into IndexedDB
       startIdle();
       toast('✓ Unlocked');
       recordActivity('careerdetails', 'Unlocked');
