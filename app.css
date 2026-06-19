@@ -3650,6 +3650,7 @@ a { color: var(--lime); text-decoration: none; }
   padding: 10px 14px;
   border-bottom: 1px solid var(--line);
   flex-shrink: 0;
+  flex-wrap: wrap;
 }
 .cd-viewer-name {
   flex: 1;
@@ -3925,25 +3926,34 @@ a { color: var(--lime); text-decoration: none; }
 .cd-docx-body {
   align-items: flex-start !important;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 0;
+  width: 100%;
 }
 .cd-docx-doc {
   background: #ffffff;
   color: #1a1a1a;
   width: 100%;
   max-width: 760px;
+  box-sizing: border-box;
   margin: 0 auto;
   padding: 32px 40px;
   font-family: Georgia, 'Times New Roman', serif;
   font-size: 14px;
   line-height: 1.7;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 .cd-docx-doc p { margin: 0 0 12px; }
 .cd-docx-doc h1, .cd-docx-doc h2, .cd-docx-doc h3 { margin: 18px 0 10px; line-height: 1.3; }
-.cd-docx-doc table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+.cd-docx-doc table { border-collapse: collapse; width: 100%; max-width: 100%; margin: 12px 0; display: block; overflow-x: auto; }
 .cd-docx-doc td, .cd-docx-doc th { border: 1px solid #ccc; padding: 6px 10px; font-size: 13px; }
 .cd-docx-doc img { max-width: 100%; height: auto; }
 .cd-docx-doc ul, .cd-docx-doc ol { padding-left: 24px; margin: 0 0 12px; }
+@media (max-width: 480px) {
+  .cd-docx-doc { padding: 16px; font-size: 13px; }
+  .cd-viewer-box { max-width: 100%; max-height: 100vh; border-radius: 0; }
+}
 .cd-docx-note {
   font-size: 10px;
   color: var(--ink-faint);
