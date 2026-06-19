@@ -1466,7 +1466,7 @@ function buildForm(container, section, entry) {
   if (section === 'idproof') {
     const idTypes = ['Passport','Aadhaar Card','PAN Card','Driving Licence','Voter ID','National ID','Employee ID Card','Student ID','Birth Certificate','Other'];
     html = `
-      ${fieldSelect('ID Type *', 'idName', idTypes, entry.idName)}
+      ${fieldSelectWithOther('ID Type *', 'idName', idTypes, entry.idName)}
       ${field('ID Number *', 'idNumber', entry.idNumber)}
       ${field('Issued By', 'issuedBy', entry.issuedBy)}
       ${fieldDate('Issue Date', 'issueDate', entry.issueDate)}
@@ -1479,7 +1479,7 @@ function buildForm(container, section, entry) {
     html = `
       ${field('Document Name *', 'docName', entry.docName)}
       ${field('Document Number / Reference ID', 'docNumber', entry.docNumber)}
-      ${fieldSelect('Document Type', 'docType', docTypes, entry.docType)}
+      ${fieldSelectWithOther('Document Type', 'docType', docTypes, entry.docType)}
       ${field('Issued By / Source', 'issuedBy', entry.issuedBy)}
       ${fieldDate('Issue Date', 'issueDate', entry.issueDate)}
       ${fieldDate('Expiry Date (if any)', 'expiryDate', entry.expiryDate)}
@@ -1548,6 +1548,22 @@ function buildForm(container, section, entry) {
   container.innerHTML = html;
   wireFilePicker(container, entry);
   wirePasswordSection(container, entry);
+  wireOtherSelects(container);
+}
+
+/* Wires every dropdown built with fieldSelectWithOther: toggles its
+   paired text box based on whether "Other" is currently selected. */
+function wireOtherSelects(container) {
+  container.querySelectorAll('.pdfk-other-select').forEach(sel => {
+    const wrap = container.querySelector(`#${sel.dataset.otherTarget}-wrap`);
+    if (!wrap) return;
+    const sync = () => {
+      const isOther = sel.value === 'Other';
+      wrap.hidden = !isOther;
+      if (isOther) wrap.querySelector('input').focus();
+    };
+    sel.addEventListener('change', sync);
+  });
 }
 
 function field(label, name, val='') {
@@ -1576,6 +1592,32 @@ function fieldSelect(label, name, options, val='', useObj=false) {
     <label class="vault-field">
       <span class="vault-field__label">${label}</span>
       <select name="${name}" class="cd-input cd-select">${opts}</select>
+    </label>
+  `;
+}
+
+/* Dropdown that reveals a free-text input when "Other" is selected,
+   so a custom type (e.g. "New PAN Card", "Old Passport") can be typed
+   in instead of being stuck with the literal word "Other". If the
+   entry's current value isn't in the preset list at all (i.e. it was
+   already a custom value from a previous save), the dropdown opens
+   pre-set to "Other" with that value already filled into the text box. */
+function fieldSelectWithOther(label, name, options, val='') {
+  const isPreset = options.includes(val);
+  const showOther = val && !isPreset; // existing custom value not in the list
+  const selectVal = showOther ? 'Other' : (val || '');
+  const opts = options.map(o =>
+    `<option value="${esc(o)}" ${selectVal===o?'selected':''}>${esc(o)}</option>`
+  ).join('');
+  return `
+    <label class="vault-field">
+      <span class="vault-field__label">${label}</span>
+      <select name="${name}" class="cd-input cd-select pdfk-other-select" data-other-target="${name}-other">${opts}</select>
+    </label>
+    <label class="vault-field pdfk-other-field" id="${name}-other-wrap" ${showOther ? '' : 'hidden'}>
+      <span class="vault-field__label">Custom ${label.replace(' *','').replace('*','')}</span>
+      <input type="text" class="cd-input" id="${name}-other" placeholder="Type your own, e.g. New PAN Card"
+             value="${esc(showOther ? val : '')}">
     </label>
   `;
 }
@@ -1776,6 +1818,15 @@ function collectForm(container, section, entry) {
     }
     if (el.tagName==='SELECT'||el.tagName==='INPUT'||el.tagName==='TEXTAREA') {
       entry[name] = el.value;
+    }
+    // If this is an "Other"-enabled dropdown set to "Other", use the
+    // typed custom value instead of the literal word "Other" — but
+    // only overwrite if the user actually typed something.
+    if (el.classList && el.classList.contains('pdfk-other-select') && el.value === 'Other') {
+      const otherInput = container.querySelector(`#${el.dataset.otherTarget}`);
+      if (otherInput && otherInput.value.trim()) {
+        entry[name] = otherInput.value.trim();
+      }
     }
   });
 }
