@@ -12,6 +12,7 @@ import vault      from '../modules/vault.js';
 import reader     from '../modules/reader.js';
 import capture    from '../modules/capture.js';
 import careerdetails from '../modules/careerdetails.js';
+import pdftoolkit from '../modules/pdftoolkit.js';
 import { VERSION, BUILD } from './version.js';
 import { initPersistence, refreshUsage } from './persistence.js';
 import {
@@ -38,7 +39,7 @@ import {
 import * as speech from './speech.js';
 
 // ↓↓↓ THE REGISTRY — edit this to add/remove icons ↓↓↓
-const MODULES = [ledger, documents, reader, sweep, vault, capture, careerdetails];
+const MODULES = [ledger, documents, reader, sweep, vault, capture, careerdetails, pdftoolkit];
 // ↑↑↑ that's it — the launcher reads from here ↑↑↑
 
 let activeModule = null;
@@ -1199,6 +1200,17 @@ function buildTile(mod, index) {
 }
 
 /* ---------- Module open/close ---------- */
+
+/* Safe cross-module navigation: lets a module open another module
+   by id (e.g. Career Details linking to PDF Toolkit) without any
+   tight coupling — just looks it up in the same MODULES registry
+   every tile button already uses. */
+export function goToModule(id) {
+  const mod = MODULES.find(m => m.id === id);
+  if (!mod) { console.warn(`[router] goToModule: no module with id "${id}"`); return; }
+  openModule(mod);
+}
+
 async function openModule(mod) {
   cleanupActiveModule();
   setTopbarTitle(mod.name.toUpperCase());
