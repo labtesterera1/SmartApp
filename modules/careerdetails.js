@@ -940,21 +940,50 @@ function renderEditor(ctx) {
 
   _root.querySelector('#back-btn').onclick   = backToMain;
   _root.querySelector('#cancel-btn').onclick = backToMain;
-  _root.querySelector('#save-btn').onclick   = async () => {
-    collectForm(body, section, entry);
-    if (!isNew) {
-      const idx = _data[section].findIndex(x=>x.id===id);
-      if (idx>=0) _data[section][idx] = entry;
-    } else {
-      _data[section].unshift(entry);
+
+  const saveBtn = _root.querySelector('#save-btn');
+  let saving = false; // re-entrancy guard — blocks double-click / double-tap
+
+  saveBtn.onclick = async () => {
+    if (saving) return;           // ignore extra clicks while a save is in flight
+    saving = true;
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'SAVING…';
+
+    try {
+      collectForm(body, section, entry);
+
+      // Idempotent write: always look up by id. If it already exists
+      // (e.g. this is a second save attempt on the same entry), update
+      // it in place instead of inserting a new copy.
+      const idx = _data[section].findIndex(x => x.id === entry.id);
+      if (idx >= 0) {
+        _data[section][idx] = entry;
+      } else {
+        _data[section].unshift(entry);
+      }
+
+      await persist();
+      toast(isNew ? '✓ Added' : '✓ Saved');
+      recordActivity('careerdetails', section);
+      backToMain();
+    } catch (e) {
+      saving = false;
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'SAVE';
+      toast('Save failed: ' + e.message, 'err');
     }
-    await persist();
-    toast(isNew ? '✓ Added' : '✓ Saved');
-    recordActivity('careerdetails', section);
-    backToMain();
   };
+
   if (!isNew) {
-    _root.querySelector('#del-btn').onclick = () => deleteEntry(section, id);
+    const delBtn = _root.querySelector('#del-btn');
+    let deleting = false; // re-entrancy guard for delete too
+    delBtn.onclick = () => {
+      if (deleting) return;
+      deleting = true;
+      delBtn.disabled = true;
+      deleteEntry(section, id).finally(() => { deleting = false; });
+    };
   }
 }
 
