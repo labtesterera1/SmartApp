@@ -3721,3 +3721,10 @@ a { color: var(--lime); text-decoration: none; }
   align-self: center;
 }
 .cd-storage-tag--warn { color: var(--warn); }
+
+/* Career Details — row-level VIEW button */
+.cd-row-view {
+  color: var(--lime-dim);
+  border-color: var(--lime-dim);
+}
+.cd-row-view:hover { color: var(--lime); border-color: var(--lime); }
