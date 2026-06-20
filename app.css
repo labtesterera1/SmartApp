@@ -3985,6 +3985,43 @@ a { color: var(--lime); text-decoration: none; }
   background: var(--bg-soft);
 }
 
+/* Career Details — DOCX preview: Laptop / Mobile mode toggle */
+.cd-docx-modes {
+  display: flex;
+  gap: 4px;
+}
+.cd-docx-mode-btn {
+  font-size: 10px;
+  opacity: 0.55;
+}
+.cd-docx-mode-btn.is-active {
+  opacity: 1;
+  color: var(--lime);
+  border-color: var(--lime-dim);
+}
+
+/* Mobile mode: tables flattened into stacked single-column blocks,
+   read in document order instead of side-by-side columns — this is
+   what makes a 2-column resume table readable on a phone, the same
+   way a PDF reader would reflow it. */
+.cd-docx-flat {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 12px 0;
+  width: 100%;
+}
+.cd-docx-flat__cell {
+  width: 100%;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #eee;
+}
+.cd-docx-flat__cell:last-child { border-bottom: none; }
+.cd-docx-doc--mobile { font-size: 13px; }
+@media (max-width: 480px) {
+  .cd-docx-flat__cell { padding-bottom: 8px; }
+}
+
 /* Career Details — DOCX preview buttons */
 .file-docxview-btn, .resume-docxview-btn {
   color: var(--lime-dim);
