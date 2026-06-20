@@ -3968,6 +3968,7 @@ a { color: var(--lime); text-decoration: none; }
   font-size: 13px;
   word-break: break-word;
   overflow-wrap: anywhere;
+  vertical-align: top;
 }
 .cd-docx-doc img { max-width: 100%; height: auto; }
 .cd-docx-doc ul, .cd-docx-doc ol { padding-left: 24px; margin: 0 0 12px; }
