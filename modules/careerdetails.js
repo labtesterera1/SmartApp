@@ -2249,6 +2249,31 @@ function isDocxFile(mime, name) {
   return n.endsWith('.docx') || m === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 }
 
+/* Flattens every <table> in the generated HTML into a stacked,
+   single-column structure — reading cells in document order
+   (row by row, left to right) instead of side-by-side columns.
+   This is what makes Mobile mode behave like a reflowed PDF: a
+   2-column resume table becomes one readable vertical stream
+   instead of two cramped narrow columns. */
+function flattenTablesToSingleColumn(html) {
+  const container = document.createElement('div');
+  container.innerHTML = html;
+  container.querySelectorAll('table').forEach(table => {
+    const flat = document.createElement('div');
+    flat.className = 'cd-docx-flat';
+    table.querySelectorAll('td, th').forEach(cell => {
+      // skip genuinely empty cells (just whitespace/nbsp) to avoid blank gaps
+      if (!cell.textContent.replace(/\u00a0/g, '').trim()) return;
+      const block = document.createElement('div');
+      block.className = 'cd-docx-flat__cell';
+      block.innerHTML = cell.innerHTML;
+      flat.appendChild(block);
+    });
+    table.replaceWith(flat);
+  });
+  return container.innerHTML;
+}
+
 async function openDocxPreview(fileId, name, mime) {
   if (!isDocxFile(mime, name)) {
     toast('In-app preview only supports .docx files (not old .doc format) — use LAUNCH to open this file instead', 'warn');
@@ -2264,6 +2289,10 @@ async function openDocxPreview(fileId, name, mime) {
     <div class="cd-viewer-box">
       <div class="cd-viewer-toolbar">
         <span class="cd-viewer-name">${esc(name)}</span>
+        <div class="cd-docx-modes" id="cd-docx-modes" hidden>
+          <button class="vault-tool-btn cd-docx-mode-btn is-active" id="cd-docx-mode-laptop" title="Original layout, side-by-side columns kept">🖥 Laptop view</button>
+          <button class="vault-tool-btn cd-docx-mode-btn" id="cd-docx-mode-mobile" title="Reflowed into one readable column, like a PDF on a phone">📱 Mobile view</button>
+        </div>
         <button class="vault-tool-btn cd-viewer-close" id="cd-docx-close">✕ Close</button>
       </div>
       <div class="cd-viewer-body cd-docx-body" id="cd-docx-body">
@@ -2284,16 +2313,42 @@ async function openDocxPreview(fileId, name, mime) {
     const dataUrl = await loadFileBlob(fileId);
     const arrayBuffer = dataUrlToArrayBuffer(dataUrl);
     const result = await mammoth.convertToHtml({ arrayBuffer });
-    bodyEl.innerHTML = `
-      <div class="cd-docx-doc">${result.value}</div>
-      ${result.messages && result.messages.length ? `<div class="cd-docx-note">Note: some formatting may not be shown exactly as in the original.</div>` : ''}
-    `;
+    const hasTables = /<table[\s>]/i.test(result.value);
+    const noteHtml = result.messages && result.messages.length
+      ? `<div class="cd-docx-note">Note: some formatting may not be shown exactly as in the original.</div>` : '';
+
+    const renderMode = (mode) => {
+      const html = mode === 'mobile' ? flattenTablesToSingleColumn(result.value) : result.value;
+      bodyEl.innerHTML = `<div class="cd-docx-doc cd-docx-doc--${mode}">${html}</div>${noteHtml}`;
+    };
+
+    if (hasTables) {
+      const modesEl = overlay.querySelector('#cd-docx-modes');
+      modesEl.hidden = false;
+      // Default to whichever fits the current screen better — narrow
+      // viewports start in Mobile mode automatically, but either
+      // button can always be tapped regardless of actual device.
+      const startMode = window.innerWidth <= 600 ? 'mobile' : 'laptop';
+      const laptopBtn = overlay.querySelector('#cd-docx-mode-laptop');
+      const mobileBtn = overlay.querySelector('#cd-docx-mode-mobile');
+      const setActive = (mode) => {
+        laptopBtn.classList.toggle('is-active', mode==='laptop');
+        mobileBtn.classList.toggle('is-active', mode==='mobile');
+        renderMode(mode);
+      };
+      laptopBtn.onclick = () => setActive('laptop');
+      mobileBtn.onclick = () => setActive('mobile');
+      setActive(startMode);
+    } else {
+      // No tables at all — single-column already, nothing to switch between
+      renderMode('laptop');
+    }
   } catch(err) {
     bodyEl.innerHTML = `
       <div class="cd-viewer-unsupported">
         Couldn't generate a preview for this file.<br>
         ${esc(err.message)}<br><br>
-        Use Launch / Download above to open it in Word or LibreOffice instead.
+        Use Download above to open it in Word or LibreOffice instead.
       </div>`;
   }
 }
