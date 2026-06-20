@@ -2255,20 +2255,44 @@ function isDocxFile(mime, name) {
    This is what makes Mobile mode behave like a reflowed PDF: a
    2-column resume table becomes one readable vertical stream
    instead of two cramped narrow columns. */
+/* Flattens every <table> in the generated HTML into a stacked,
+   single-column structure — reading each COLUMN fully before moving
+   to the next, not interleaving row-by-row. A typical resume table
+   like [Job description | Skills list] has each column's content
+   spread across many rows; walking cells in raw DOM order (row by
+   row) would alternate "description line, skill, description line,
+   skill…" which reads as nonsense. Grouping by column instead keeps
+   the entire description together, then the entire skills list
+   together — the same order a PDF reader's reflow would produce. */
 function flattenTablesToSingleColumn(html) {
   const container = document.createElement('div');
   container.innerHTML = html;
   container.querySelectorAll('table').forEach(table => {
+    const rows = Array.from(table.rows);
+    if (!rows.length) { table.remove(); return; }
+
+    // Determine the widest row so every column index is covered, even
+    // if some rows have fewer cells (rowspan/colspan edge cases).
+    const colCount = Math.max(...rows.map(r => r.cells.length));
     const flat = document.createElement('div');
     flat.className = 'cd-docx-flat';
-    table.querySelectorAll('td, th').forEach(cell => {
-      // skip genuinely empty cells (just whitespace/nbsp) to avoid blank gaps
-      if (!cell.textContent.replace(/\u00a0/g, '').trim()) return;
-      const block = document.createElement('div');
-      block.className = 'cd-docx-flat__cell';
-      block.innerHTML = cell.innerHTML;
-      flat.appendChild(block);
-    });
+
+    for (let col = 0; col < colCount; col++) {
+      const colGroup = document.createElement('div');
+      colGroup.className = 'cd-docx-flat__col';
+      let hasContent = false;
+      rows.forEach(row => {
+        const cell = row.cells[col];
+        if (!cell) return;
+        if (!cell.textContent.replace(/\u00a0/g, '').trim()) return; // skip empty cells
+        const block = document.createElement('div');
+        block.className = 'cd-docx-flat__cell';
+        block.innerHTML = cell.innerHTML;
+        colGroup.appendChild(block);
+        hasContent = true;
+      });
+      if (hasContent) flat.appendChild(colGroup);
+    }
     table.replaceWith(flat);
   });
   return container.innerHTML;
